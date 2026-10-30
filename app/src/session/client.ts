@@ -8,6 +8,44 @@ import { BoundedChannel } from '../transport/bounded-channel';
 import { systemClock, type Clock, type DataChannel, type TransportEndpoint, type TransportFactory } from '../transport/types';
 import { BoardStore } from './board';
 
+/** The stages of opening or joining, in the order they run. */
+type OpenStep = 'identity' | 'signaling' | 'session' | 'signing' | 'invite';
+
+/** Error name only. Never the message, which can carry endpoints or paths. */
+function errorName(error: unknown): string {
+  if (error instanceof Error && error.name && error.name !== 'Error') return error.name;
+  if (error instanceof Error && error.message) return error.message.slice(0, 80);
+  return 'UnknownError';
+}
+
+function describeOpenFailure(step: OpenStep, error: unknown): string {
+  const name = errorName(error);
+  switch (step) {
+    case 'identity':
+      return `Tu identidad no se pudo verificar en este entorno (${name}). Falla la criptografía del navegador, no la red.`;
+    case 'signaling':
+      return `No se pudo abrir la señalización (${name}). Comprueba la red o vuelve a intentarlo; el servidor es gratuito y a veces rechaza conexiones.`;
+    case 'signing':
+      return `No se pudo firmar tu casa (${name}). Falla la criptografía del navegador, no la red.`;
+    case 'invite':
+      return `La señalización se abrió, pero no se pudo crear la invitación (${name}).`;
+    default:
+      return `La señalización se abrió, pero no se pudo preparar la sesión (${name}).`;
+  }
+}
+
+function describeJoinFailure(step: OpenStep, error: unknown): string {
+  const name = errorName(error);
+  switch (step) {
+    case 'identity':
+      return `Tu identidad no se pudo verificar en este entorno (${name}). Falla la criptografía del navegador, no la red.`;
+    case 'signaling':
+      return `No se pudo abrir la señalización (${name}). Comprueba la red y vuelve a intentarlo.`;
+    default:
+      return `No se pudo conectar con quien te invitó (${name}). Comprueba la invitación; algunas redes impiden WebRTC directo.`;
+  }
+}
+
 export interface VillageClientOptions { transportFactory?: TransportFactory; clock?: Clock; mediaDevices?: MediaDevicesAdapter }
 type Intent = 'join' | 'resume' | 'mesh';
 interface Link {
@@ -105,19 +143,30 @@ export class VillageClient implements VillageActions {
     this.reset(); const generation = this.generation;
     this.isHost = true; this.hostId = this.id; this.sessionId = randomId(); this.epoch = 1;
     this.setPhase('SIGNALING');
+    // Each step is tagged so a failure names the step that actually broke.
+    // A single catch here used to blame "la señalización o WebRTC" for any of
+    // four unrelated failures, including WebCrypto, which made a working
+    // network look like a dead one.
+    let step: OpenStep = 'identity';
     try {
       await validatePublicIdentity(this.identity.public);
       if (generation !== this.generation || this.disposed) return;
+      step = 'signaling';
       const endpoint = await this.factory();
       if (generation !== this.generation || this.disposed) { endpoint.destroy(); return; }
+      step = 'session';
       this.attachEndpoint(endpoint);
       this.members.set(this.id, { identity: structuredClone(this.identity.public), endpoint: endpoint.id, slot: 0, connected: true, houseId: null, position: initialPosition() });
+      step = 'signing';
       const ownDocument = await this.signHouse(this.ownHouse);
       if (generation !== this.generation) return;
+      step = 'invite';
       this.houses.set(this.id, ownDocument);
       this.invite = createInvite(this.id, endpoint.id, this.sessionId!, this.epoch, 1, this.clock.wallNow());
       this.rosterRevision = 1; this.setPhase('JOINED'); this.startTick();
-    } catch { if (generation === this.generation) this.finish('NETWORK_FAILED', 'No se pudo abrir el vecindario. La señalización o WebRTC no están disponibles.'); }
+    } catch (error) {
+      if (generation === this.generation) this.finish('NETWORK_FAILED', describeOpenFailure(step, error));
+    }
   }
   async joinVillage(encodedInvite: string): Promise<void> {
     if (this.disposed || activePhases.includes(this.phase)) { this.setError('Sal del vecindario actual antes de unirte a otro.'); return; }
@@ -127,14 +176,19 @@ export class VillageClient implements VillageActions {
     if (this.invite.hostFingerprint === this.id) { this.finish('NETWORK_FAILED', 'No puedes unirte a tu propia identidad.'); return; }
     this.hostId = this.invite.hostFingerprint; this.sessionId = this.invite.sessionId; this.epoch = this.invite.epoch;
     this.setPhase('SIGNALING');
+    let step: OpenStep = 'identity';
     try {
       await validatePublicIdentity(this.identity.public);
       if (generation !== this.generation || this.disposed) return;
+      step = 'signaling';
       const endpoint = await this.factory();
       if (generation !== this.generation || this.disposed) { endpoint.destroy(); return; }
+      step = 'session';
       this.attachEndpoint(endpoint); this.setPhase('CONNECTING'); this.startTick();
       this.connect(this.invite.endpoint, 'join', this.hostId);
-    } catch { if (generation === this.generation) this.finish('NETWORK_FAILED', 'No se pudo conectar. Comprueba la invitación y la red; algunas redes impiden WebRTC directo.'); }
+    } catch (error) {
+      if (generation === this.generation) this.finish('NETWORK_FAILED', describeJoinFailure(step, error));
+    }
   }
   private attachEndpoint(endpoint: TransportEndpoint): void {
     this.endpoint = endpoint; this.media.attach(endpoint);
