@@ -28,7 +28,8 @@
 | Visual overhaul: character animation | PASS, 4 of 4 consecutive frames differ while walking; idle breathing observed; remote peers interpolated, local peer drawn at exact position. |
 | Visual overhaul: reduced motion | PASS, under `prefers-reduced-motion: reduce` the scene is byte-identical across 1 s with no input, and still responds to keys. Covered by e2e. |
 | Visual overhaul: layout | PASS, zero horizontal overflow at 1600, 900 and 420 px wide; zero console errors in all three. |
-| Visual overhaul: appearance | Reviewed by screenshot at each iteration. Browser only; WebKitGTK rendering of the new CSS is NOT yet verified. |
+| Visual overhaul: appearance | Reviewed by screenshot at each iteration in Chrome. |
+| Visual overhaul: native rendering | PASS, the CI AppImage from run `41130172908` was launched on Linux Mint and rendered the new interface correctly under WebKitGTK, chamfered `clip-path` panels included. That build predates the drawn nav icons and the scene fade, so those two are Chrome-only so far. |
 
 Local environment: Linux Mint 22.3 (Ubuntu noble), Cinnamon X11, x86_64. GTK/WebKitGTK runtime libraries exist; pkg-config development metadata is absent. `sudo -n true` reports a password is required. No system package installation was performed.
 
