@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",
+    "mathjax-full": "3.2.2",
     "peerjs": "1.5.5",
     "zod": "4.6.7"
   },

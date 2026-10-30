@@ -427,3 +427,21 @@ export function drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, sc
   fill(ctx, d0, -13, -7, 9, 7);
   ctx.restore();
 }
+
+/**
+ * Small key prompt that floats above the character when an action is
+ * available, such as "E · Entrar" at a door. It tells the player the key
+ * works here, which matters now that E only acts at doorways.
+ */
+export function drawPrompt(ctx: CanvasRenderingContext2D, x: number, y: number, label: string): void {
+  const bob = reducedMotion() ? 0 : Math.round(Math.sin(frameClock * 4) * 1.5);
+  ctx.font = '700 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const w = Math.ceil(ctx.measureText(label).width) + 16;
+  const px = Math.round(x - w / 2);
+  const py = Math.round(y) + bob;
+  plate(ctx, px, py, w, 16, 'rgba(255,215,154,0.97)', 'rgba(90,64,40,0.85)');
+  fill(ctx, 'rgba(90,64,40,0.85)', x - 2, py + 15, 4, 3);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = PALETTE.paper[0];
+  ctx.fillText(label, Math.round(x), py + 12);
+}

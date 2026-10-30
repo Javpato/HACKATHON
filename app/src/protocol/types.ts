@@ -4,6 +4,9 @@ export const LIMITS = {
   messageBytes: 65_536, queueMessages: 128, queueBytes: 1_048_576,
   strokePoints: 512, boardOperations: 2_000, furniture: 32,
   worldWidth: 768, worldHeight: 432,
+  // Whiteboard: the board is unbounded in practice; coordinates are world
+  // units within ±boardExtent, and a text note is at most boardText chars.
+  boardExtent: 20_000, boardText: 280,
 } as const;
 
 export type IdentityId = string;
@@ -24,7 +27,7 @@ export interface JoinRequest { requestId: string; identity: PublicIdentity }
 export interface VisitRequest { requestId: string; identity: PublicIdentity; houseId: IdentityId }
 export type SessionPhase = 'IDLE' | 'SIGNALING' | 'CONNECTING' | 'AUTHENTICATING' | 'PENDING_APPROVAL' | 'JOINED' | 'RECONNECTING' | 'DENIED' | 'EXPIRED_INVITE' | 'NETWORK_FAILED' | 'KICKED' | 'CLOSED';
 export interface BoardPoint { x: number; y: number }
-export interface BoardStroke { id: string; author: IdentityId; boardId: IdentityId; seq: number; color: string; width: number; tool: 'pen' | 'line' | 'rectangle'; points: BoardPoint[]; deleted: boolean }
+export interface BoardStroke { id: string; author: IdentityId; boardId: IdentityId; seq: number; color: string; width: number; tool: 'pen' | 'line' | 'rectangle' | 'text'; points: BoardPoint[]; deleted: boolean; text?: string }
 export type ScreenPhase = 'OFF' | 'REQUESTING_OS_PERMISSION' | 'CAPTURING_LOCAL' | 'NEGOTIATING' | 'SENDING' | 'DENIED' | 'NOT_SUPPORTED' | 'SOURCE_ENDED' | 'NETWORK_FAILED';
 export interface RemoteMedia { identityId: IdentityId; kind: 'audio' | 'screen'; stream: MediaStream }
 export interface MediaView { micEnabled: boolean; muted: boolean; deafened: boolean; pushToTalk: boolean; talking: boolean; screenPhase: ScreenPhase; localScreen: MediaStream | null; remote: RemoteMedia[]; audience: string; error: string | null }

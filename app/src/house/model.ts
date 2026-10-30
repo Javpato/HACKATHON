@@ -3,6 +3,19 @@ import { type Rect, stepPosition } from '../world/model';
 
 export const HOUSE_SPAWN: Position = { x: 384, y: 344, direction: 'up', moving: false };
 export const HOUSE_BOUNDS: Rect = { x: 28, y: 72, w: 712, h: 334 };
+
+/** The doorway at the bottom of every room, on the doormat. */
+export const HOUSE_DOOR = { x: 384, y: 396 } as const;
+const DOOR_REACH = 40;
+
+/**
+ * Whether the character is standing at the doorway. Leaving with E is only
+ * allowed here, so a stray keypress in the middle of the room no longer ejects
+ * the player to the village. Spawn (384,344) is deliberately out of reach.
+ */
+export function atHouseDoor(position: Position): boolean {
+  return Math.abs(position.x - HOUSE_DOOR.x) <= DOOR_REACH && HOUSE_DOOR.y - position.y <= DOOR_REACH;
+}
 export const FURNITURE_KINDS: readonly FurnitureKind[] = ['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet'];
 export const FURNITURE_LABELS: Record<FurnitureKind, string> = {
   desk: 'Escritorio', bookshelf: 'Librería', board: 'Pizarra', plant: 'Planta',

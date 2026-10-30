@@ -182,6 +182,13 @@ function paintRoomFrame(ctx: CanvasRenderingContext2D, room: Room): void {
   for (let x = 4; x < W; x += 38) fill(ctx, shade(deep, -6), x, H - 16, 2, 9);
   fill(ctx, shade(room.trim, -14), 0, H - 20, W, 3);
 
+  // The doorway out of the room, centred on the doormat. E only works here.
+  fill(ctx, shade(deep, -22), 356, H - 20, 56, 20);
+  fill(ctx, '#2a3d32', 360, H - 18, 48, 18);
+  fill(ctx, 'rgba(255,214,150,0.35)', 362, H - 18, 44, 3);
+  fill(ctx, room.trim, 352, H - 22, 6, 22);
+  fill(ctx, room.trim, 410, H - 22, 6, 22);
+
   // Inner corner shadows so the joinery sits against the boards.
   for (let i = 0; i < 12; i += 1) {
     const a = (0.15 - i * 0.012).toFixed(3);

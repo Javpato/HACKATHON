@@ -4,15 +4,19 @@ import {
   type FurnitureKind, type Position, type PublicHouse,
 } from '../protocol/types';
 import { insertAtSelection, SNIPPETS } from '../editor/snippets';
-import {
+import { atHouseDoor,
   FURNITURE_KINDS, FURNITURE_LABELS, HOUSE_SPAWN, addFurniture, deleteFurniture,
   hitFurniture, moveFurniture, setFurnitureAlias, stepHousePosition,
 } from '../house/model';
 import { drawHouseInterior } from '../house/draw';
-import { BOARD_COLORS, boardAtCapacity, clampBoardPoint, makeStroke, newestOwnStroke, nextSequence, visibleStrokes } from '../whiteboard/model';
-import { drawBoard } from '../whiteboard/draw';
+import {
+  BOARD_COLORS, DEFAULT_CAMERA, boardAtCapacity, clampBoardPoint, fitCamera, makeStroke, newestOwnStroke,
+  nextSequence, panBy, screenToWorld, strokeHit, strokesBounds, visibleStrokes, zoomAt,
+  type BoardCamera, type BoardUiTool,
+} from '../whiteboard/model';
+import { drawBoard, renderBoardForExport, textBox, textFontPx } from '../whiteboard/draw';
 import { WORLD_SPAWN, closestDoor, occupiedParcels, pointInRect, stepPosition, worldObstacles } from '../world/model';
-import { advanceAnim } from './art';
+import { advanceAnim, drawPrompt } from './art';
 import { drawWorld, type DrawPerson } from '../world/draw';
 
 type Pane = 'world' | 'house' | 'board' | 'editor' | 'contacts' | 'diagnostics';
@@ -181,6 +185,7 @@ class StudyUI {
   private copyInviteButton!: HTMLButtonElement;
   private rotateInviteButton!: HTMLButtonElement;
   private noticeBox!: HTMLElement;
+  private headingAction!: HTMLButtonElement;
   private noticeText!: HTMLElement;
   private title!: HTMLElement;
   private subtitle!: HTMLElement;
@@ -188,8 +193,17 @@ class StudyUI {
   private stageCanvas!: HTMLCanvasElement;
   private boardPane!: HTMLElement;
   private boardCanvas!: HTMLCanvasElement;
-  private boardToolButtons = new Map<BoardStroke['tool'], HTMLButtonElement>();
-  private boardTool: BoardStroke['tool'] = 'pen';
+  private boardToolButtons = new Map<BoardUiTool, HTMLButtonElement>();
+  private boardTool: BoardUiTool = 'pen';
+  private boardWrap!: HTMLElement;
+  private boardZoomLabel!: HTMLElement;
+  private boardClearButton!: HTMLButtonElement;
+  private boardClearArmed = false;
+  private boardTextInput: HTMLTextAreaElement | null = null;
+  /** Each board keeps its own view, so visiting a friend's board does not move yours. */
+  private boardCameras = new Map<string, BoardCamera>();
+  private boardPan: { pointerId: number; x: number; y: number } | null = null;
+  private boardErasing: number | null = null;
   private boardColor!: HTMLInputElement;
   private boardWidth!: HTMLSelectElement;
   private boardStatus!: HTMLElement;
@@ -429,9 +443,14 @@ class StudyUI {
     this.title = node('h1', '', 'La aldea');
     this.subtitle = node('p', 'sv-subtle', 'Un espacio tranquilo para estudiar a tu ritmo.');
     append(headingCopy, node('div', 'sv-eyebrow', 'STUDYVILLAGE · TU ESPACIO'), this.title, this.subtitle);
-    const headingAction = button('Ir a mi casa →', 'sv-button sv-button-outline');
-    headingAction.addEventListener('click', () => this.enterOwnHouse());
-    append(heading, headingCopy, headingAction);
+    // Context action: from the board it returns to the room you were in, so
+    // opening the board never strands you outside a friend's house.
+    this.headingAction = button('Ir a mi casa →', 'sv-button sv-button-outline');
+    this.headingAction.addEventListener('click', () => {
+      if (this.pane === 'board' && this.houseOwnerId) this.returnToRoom();
+      else this.enterOwnHouse();
+    });
+    append(heading, headingCopy, this.headingAction);
 
     this.canvasPane = node('section', 'sv-stage-pane');
     const stageWrap = node('div', 'sv-canvas-wrap');
@@ -461,10 +480,15 @@ class StudyUI {
     this.boardPane = node('section', 'sv-panel sv-board-pane');
     const toolbar = node('div', 'sv-toolbar');
     const tools = node('div', 'sv-segment');
-    const labels: [BoardStroke['tool'], string][] = [['pen', 'Lápiz'], ['line', 'Línea'], ['rectangle', 'Rectángulo']];
-    for (const [tool, label] of labels) {
+    const labels: [BoardUiTool, string, string][] = [
+      ['hand', 'Mano', 'Mover la vista (también: botón central o rueda)'],
+      ['pen', 'Lápiz', 'Dibujo libre'], ['line', 'Línea', 'Línea recta'], ['rectangle', 'Rectángulo', 'Rectángulo'],
+      ['text', 'Texto', 'Texto y fórmulas: escribe $x^2$ para LaTeX'], ['eraser', 'Borrador', 'Borra tus propios trazos'],
+    ];
+    for (const [tool, label, hint] of labels) {
       const item = button(label, 'sv-segment-button');
-      item.addEventListener('click', () => { this.boardTool = tool; this.refreshBoardControls(); });
+      item.title = hint;
+      item.addEventListener('click', () => { this.commitBoardText(); this.boardTool = tool; this.refreshBoardControls(); });
       this.boardToolButtons.set(tool, item);
       tools.append(item);
     }
@@ -476,8 +500,33 @@ class StudyUI {
     this.boardWidth.setAttribute('aria-label', 'Grosor del trazo');
     this.boardUndoButton = button('↶ Deshacer', 'sv-button sv-button-small');
     this.boardUndoButton.addEventListener('click', () => this.undoStroke());
-    append(toolbar, tools, this.boardColor, this.boardWidth, this.boardUndoButton);
-    const wrap = node('div', 'sv-canvas-wrap');
+    // Two-step clear instead of a confirm() dialog, which would block the app.
+    this.boardClearButton = button('Borrar lo mío', 'sv-button sv-button-small');
+    this.boardClearButton.addEventListener('click', () => {
+      if (!this.boardClearArmed) {
+        this.boardClearArmed = true;
+        this.refreshBoardControls();
+        setTimeout(() => { this.boardClearArmed = false; this.refreshBoardControls(); }, 3_000);
+        return;
+      }
+      this.boardClearArmed = false;
+      this.clearOwnStrokes();
+    });
+    const zoom = node('div', 'sv-zoom');
+    const zoomOut = button('−', 'sv-button sv-button-small');
+    zoomOut.setAttribute('aria-label', 'Alejar');
+    zoomOut.addEventListener('click', () => this.zoomBoard(1 / 1.25));
+    this.boardZoomLabel = node('span', 'sv-zoom-label', '100%');
+    const zoomIn = button('+', 'sv-button sv-button-small');
+    zoomIn.setAttribute('aria-label', 'Acercar');
+    zoomIn.addEventListener('click', () => this.zoomBoard(1.25));
+    const fit = button('Centrar', 'sv-button sv-button-small');
+    fit.title = 'Encuadrar todo lo dibujado';
+    fit.addEventListener('click', () => this.fitBoard());
+    append(zoom, zoomOut, this.boardZoomLabel, zoomIn, fit);
+    append(toolbar, tools, this.boardColor, this.boardWidth, this.boardUndoButton, this.boardClearButton, zoom);
+    const wrap = node('div', 'sv-canvas-wrap sv-board-wrap');
+    this.boardWrap = wrap;
     this.boardCanvas = node('canvas', 'sv-canvas');
     this.boardCanvas.width = 768;
     this.boardCanvas.height = 432;
@@ -486,6 +535,8 @@ class StudyUI {
     this.boardCanvas.addEventListener('pointermove', this.onBoardPointerMove);
     this.boardCanvas.addEventListener('pointerup', this.onBoardPointerUp);
     this.boardCanvas.addEventListener('pointercancel', this.onBoardPointerUp);
+    this.boardCanvas.addEventListener('wheel', this.onBoardWheel, { passive: false });
+    this.boardCanvas.addEventListener('auxclick', (event) => event.preventDefault());
     wrap.append(this.boardCanvas);
     const bottom = node('div', 'sv-board-bottom');
     this.boardStatus = node('p', 'sv-subtle');
@@ -499,7 +550,9 @@ class StudyUI {
     append(exportGroup, this.boardExportMode, exportButton);
     append(bottom, this.boardStatus, exportGroup);
     this.boardLayers = node('div', 'sv-layers');
-    append(this.boardPane, toolbar, wrap, bottom, node('h3', 'sv-section-title', 'Capas por autor'), this.boardLayers);
+    const hint = node('p', 'sv-tiny sv-board-hint',
+      'Rueda: desplazar · Ctrl + rueda: zoom · Botón central: arrastrar · Texto: Intro para fijar, Mayús + Intro nueva línea, $\\frac{a}{b}$ para fórmulas.');
+    append(this.boardPane, toolbar, wrap, hint, bottom, node('h3', 'sv-section-title', 'Capas por autor'), this.boardLayers);
   }
 
   private buildEditor(): void {
@@ -762,6 +815,11 @@ class StudyUI {
       contacts: ['Contactos', 'Tu pequeña agenda de personas de confianza.'],
       diagnostics: ['Diagnóstico', 'Comprueba las capacidades observadas en este equipo.'],
     };
+    const inRoom = !!this.houseOwnerId;
+    const ownRoom = this.houseOwnerId === view.identity.fingerprint;
+    if (this.pane === 'board' && inRoom) setText(this.headingAction, ownRoom ? '← Volver a mi casa' : '← Volver a la casa');
+    else setText(this.headingAction, 'Ir a mi casa →');
+    show(this.headingAction, !(this.pane === 'house' && ownRoom));
     setText(this.title, titles[this.pane][0]);
     setText(this.subtitle, titles[this.pane][1]);
     show(this.canvasPane, this.pane === 'world' || this.pane === 'house');
@@ -878,7 +936,14 @@ class StudyUI {
     const boardId = this.boardId();
     const strokes = this.allStrokes(boardId);
     for (const [tool, item] of this.boardToolButtons) item.classList.toggle('is-active', tool === this.boardTool);
-    this.boardUndoButton.disabled = !newestOwnStroke(strokes, view.identity.fingerprint, boardId);
+    const hasOwn = !!newestOwnStroke(strokes, view.identity.fingerprint, boardId);
+    this.boardUndoButton.disabled = !hasOwn;
+    this.boardClearButton.disabled = !hasOwn;
+    if (!hasOwn) this.boardClearArmed = false;
+    setText(this.boardClearButton, this.boardClearArmed ? '¿Borrar todo lo tuyo?' : 'Borrar lo mío');
+    this.boardClearButton.classList.toggle('is-armed', this.boardClearArmed);
+    this.boardCanvas.dataset.tool = this.boardTool;
+    setText(this.boardZoomLabel, `${Math.round(this.boardCamera().zoom * 100)}%`);
     const canDraw = this.canDrawBoard();
     setText(this.boardStatus, !canDraw
       ? 'Entra en la casa para dibujar en su pizarra.'
@@ -1025,9 +1090,21 @@ class StudyUI {
   private navigate(pane: Pane): void {
     if (!this.view) return;
     if (pane === 'world') this.leaveCurrentHouse();
-    else if (pane === 'house') { this.enterOwnHouse(); return; }
+    else if (pane === 'house') {
+      // Already inside your own house (for example, back from the board):
+      // return to it as you left it instead of re-entering at the doormat.
+      if (this.houseOwnerId === this.view.identity.fingerprint) { this.returnToRoom(); return; }
+      this.enterOwnHouse(); return;
+    }
     else if (pane === 'board' && !this.houseOwnerId) this.enterOwnHouse();
     this.pane = pane;
+    this.refresh();
+  }
+
+  /** Back to the room the player is in, keeping their position. */
+  private returnToRoom(): void {
+    if (!this.houseOwnerId) return;
+    this.pane = 'house';
     this.refresh();
   }
 
@@ -1103,28 +1180,134 @@ class StudyUI {
     const boardId = this.boardId();
     const stroke = newestOwnStroke(this.allStrokes(boardId), view.identity.fingerprint, boardId);
     if (!stroke) return;
-    const offline = this.offlineStrokes.find((item) => item.id === stroke.id);
-    if (offline) offline.deleted = true;
-    else {
-      const pending = this.pendingStrokes.find((item) => item.id === stroke.id);
-      if (pending) pending.deleted = true;
-      this.run(() => this.actions.deleteStroke(stroke.id));
-    }
+    this.removeOwnStroke(stroke);
     this.refreshBoardControls();
+  }
+
+  /** Deletes one of your own strokes, wherever it currently lives. */
+  private removeOwnStroke(stroke: BoardStroke): void {
+    const offline = this.offlineStrokes.find((item) => item.id === stroke.id);
+    if (offline) { offline.deleted = true; return; }
+    const pending = this.pendingStrokes.find((item) => item.id === stroke.id);
+    if (pending) pending.deleted = true;
+    this.run(() => this.actions.deleteStroke(stroke.id));
+  }
+
+  private clearOwnStrokes(): void {
+    const view = this.view;
+    if (!view) return;
+    const boardId = this.boardId();
+    const own = this.allStrokes(boardId).filter((stroke) => stroke.author === view.identity.fingerprint && !stroke.deleted);
+    for (const stroke of own) this.removeOwnStroke(stroke);
+    this.notify(own.length ? `Se borraron ${own.length} trazo(s) tuyos.` : 'No tienes trazos en esta pizarra.');
+    this.refreshBoardControls();
+  }
+
+  /** Erases your own strokes under a board-space point. Others' work is never touched. */
+  private eraseAt(point: BoardPoint): void {
+    const view = this.view;
+    if (!view) return;
+    const boardId = this.boardId();
+    const radius = 8 / this.boardCamera().zoom;
+    let erased = false;
+    for (const stroke of this.allStrokes(boardId)) {
+      if (stroke.author !== view.identity.fingerprint || stroke.deleted || this.hiddenAuthors.has(stroke.author)) continue;
+      if (strokeHit(stroke, point, radius, textBox(stroke))) { this.removeOwnStroke(stroke); erased = true; }
+    }
+    if (erased) this.refreshBoardControls();
+  }
+
+  private boardCamera(): BoardCamera {
+    return this.boardCameras.get(this.boardId()) ?? DEFAULT_CAMERA;
+  }
+
+  private setBoardCamera(camera: BoardCamera): void {
+    this.boardCameras.set(this.boardId(), camera);
+    setText(this.boardZoomLabel, `${Math.round(camera.zoom * 100)}%`);
+    this.positionBoardTextInput();
+  }
+
+  private zoomBoard(factor: number): void {
+    this.setBoardCamera(zoomAt(this.boardCamera(), 384, 216, factor));
+  }
+
+  private fitBoard(): void {
+    const boardId = this.boardId();
+    const strokes = visibleStrokes(this.allStrokes(boardId), boardId, this.hiddenAuthors);
+    this.setBoardCamera(fitCamera(strokesBounds(strokes, textBox), 768, 432));
+  }
+
+  private boardWorldPoint(event: MouseEvent): BoardPoint {
+    const local = this.canvasPoint(event, this.boardCanvas);
+    return screenToWorld(this.boardCamera(), local.x, local.y);
+  }
+
+  // ------------------------------------------------------------ text tool --
+
+  /** Opens an inline editor at a world point; Enter commits, Escape cancels. */
+  private openBoardText(at: BoardPoint): void {
+    this.commitBoardText();
+    const input = node('textarea', 'sv-board-text');
+    input.rows = 1;
+    input.maxLength = LIMITS.boardText;
+    input.placeholder = 'Escribe… ($x^2$ para fórmulas)';
+    input.setAttribute('aria-label', 'Texto para la pizarra');
+    input.dataset.x = String(at.x);
+    input.dataset.y = String(at.y);
+    input.style.color = this.boardColor.value;
+    input.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.cancelBoardText(); }
+      else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.commitBoardText(); }
+    });
+    input.addEventListener('input', () => {
+      input.rows = Math.min(8, input.value.split('\n').length);
+    });
+    input.addEventListener('blur', () => { if (this.boardTextInput === input) this.commitBoardText(); });
+    this.boardTextInput = input;
+    this.boardWrap.append(input);
+    this.positionBoardTextInput();
+    input.focus();
+  }
+
+  private positionBoardTextInput(): void {
+    const input = this.boardTextInput;
+    if (!input) return;
+    const camera = this.boardCamera();
+    const x = Number(input.dataset.x);
+    const y = Number(input.dataset.y);
+    // Logical 768x432 units to the canvas's displayed size.
+    const scale = this.boardCanvas.clientWidth / 768 || 1;
+    const size = textFontPx(Number(this.boardWidth.value)) * camera.zoom * scale;
+    input.style.left = `${(x - camera.x) * camera.zoom * scale}px`;
+    input.style.top = `${(y - camera.y) * camera.zoom * scale}px`;
+    input.style.fontSize = `${Math.max(10, size)}px`;
+  }
+
+  private cancelBoardText(): void {
+    this.boardTextInput?.remove();
+    this.boardTextInput = null;
+  }
+
+  private commitBoardText(): void {
+    const input = this.boardTextInput;
+    if (!input) return;
+    this.boardTextInput = null;
+    const value = input.value.replace(/\s+$/, '');
+    const at = { x: Number(input.dataset.x), y: Number(input.dataset.y) };
+    input.remove();
+    if (!value.trim()) return;
+    this.saveStroke({ points: [at], tool: 'text', color: this.boardColor.value, width: Number(this.boardWidth.value) }, value);
   }
 
   private exportBoard(): void {
     const boardId = this.boardId();
-    const canvas = document.createElement('canvas');
-    canvas.width = 768;
-    canvas.height = 432;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
     const strokes = this.boardExportMode.value === 'all'
       ? this.allStrokes(boardId).filter((stroke) => !stroke.deleted)
       : visibleStrokes(this.allStrokes(boardId), boardId, this.hiddenAuthors);
-    drawBoard(ctx, strokes);
-    this.run(() => this.actions.exportBoard(canvas));
+    // The board is infinite, so the export frames everything that was drawn
+    // rather than whatever happens to be on screen.
+    this.run(async () => this.actions.exportBoard(await renderBoardForExport(strokes)));
   }
 
   private openEditorFile(): void {
@@ -1166,7 +1349,7 @@ class StudyUI {
 
   private notify(message: string): void { this.localNotice = message; this.refresh(); }
 
-  private canvasPoint(event: PointerEvent, canvas: HTMLCanvasElement): BoardPoint {
+  private canvasPoint(event: MouseEvent, canvas: HTMLCanvasElement): BoardPoint {
     const rect = canvas.getBoundingClientRect();
     return { x: (event.clientX - rect.left) * canvas.width / rect.width,
       y: (event.clientY - rect.top) * canvas.height / rect.height };
@@ -1211,40 +1394,94 @@ class StudyUI {
   };
 
   private onBoardPointerDown = (event: PointerEvent): void => {
-    if (!this.canDrawBoard() || boardAtCapacity(this.allStrokes(this.boardId()), this.boardId())) return;
-    const point = clampBoardPoint(this.canvasPoint(event, this.boardCanvas));
-    this.boardDraft = { points: [point], tool: this.boardTool, color: this.boardColor.value, width: Number(this.boardWidth.value) };
+    // Middle button, or the hand tool, pans. Panning never needs permission,
+    // so you can look around a friend's board you are not allowed to edit.
+    if (event.button === 1 || (this.boardTool === 'hand' && event.button === 0)) {
+      this.boardPan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      this.boardCanvas.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+    if (event.button !== 0) return;
+    if (!this.canDrawBoard()) return;
+    const point = clampBoardPoint(this.boardWorldPoint(event));
+    if (this.boardTool === 'eraser') {
+      this.boardErasing = event.pointerId;
+      this.boardCanvas.setPointerCapture(event.pointerId);
+      this.eraseAt(point);
+      event.preventDefault();
+      return;
+    }
+    if (boardAtCapacity(this.allStrokes(this.boardId()), this.boardId())) return;
+    if (this.boardTool === 'text') {
+      event.preventDefault();
+      this.openBoardText(point);
+      return;
+    }
+    const tool = this.boardTool;
+    if (tool === 'hand') return;
+    this.boardDraft = { points: [point], tool, color: this.boardColor.value, width: Number(this.boardWidth.value) };
     this.boardCanvas.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
 
   private onBoardPointerMove = (event: PointerEvent): void => {
+    if (this.boardPan && event.pointerId === this.boardPan.pointerId) {
+      const scale = 768 / (this.boardCanvas.clientWidth || 768);
+      this.setBoardCamera(panBy(this.boardCamera(), (event.clientX - this.boardPan.x) * scale, (event.clientY - this.boardPan.y) * scale));
+      this.boardPan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      return;
+    }
+    if (this.boardErasing === event.pointerId) { this.eraseAt(clampBoardPoint(this.boardWorldPoint(event))); return; }
     if (!this.boardDraft) return;
-    const point = clampBoardPoint(this.canvasPoint(event, this.boardCanvas));
+    const point = clampBoardPoint(this.boardWorldPoint(event));
     const points = this.boardDraft.points;
     if (this.boardDraft.tool === 'pen') {
       const last = points[points.length - 1];
-      if (points.length < LIMITS.strokePoints && Math.hypot(point.x - last.x, point.y - last.y) >= 2) points.push(point);
+      const minStep = 2 / this.boardCamera().zoom;
+      if (points.length < LIMITS.strokePoints && Math.hypot(point.x - last.x, point.y - last.y) >= minStep) points.push(point);
     } else points[1] = point;
   };
 
   private onBoardPointerUp = (event: PointerEvent): void => {
-    const view = this.view;
-    const draft = this.boardDraft;
-    if (!view || !draft) return;
     if (this.boardCanvas.hasPointerCapture(event.pointerId)) this.boardCanvas.releasePointerCapture(event.pointerId);
+    if (this.boardPan?.pointerId === event.pointerId) { this.boardPan = null; return; }
+    if (this.boardErasing === event.pointerId) { this.boardErasing = null; return; }
+    const draft = this.boardDraft;
+    if (!draft) return;
     this.boardDraft = null;
+    this.saveStroke(draft);
+  };
+
+  private onBoardWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    const local = this.canvasPoint(event, this.boardCanvas);
+    // Ctrl+wheel is also what a trackpad pinch sends, so it zooms; a plain
+    // wheel or two-finger swipe pans, as in other infinite canvases.
+    if (event.ctrlKey || event.metaKey) {
+      this.setBoardCamera(zoomAt(this.boardCamera(), local.x, local.y, Math.exp(-event.deltaY * 0.0025)));
+    } else {
+      const scale = 768 / (this.boardCanvas.clientWidth || 768);
+      this.setBoardCamera(panBy(this.boardCamera(), -event.deltaX * scale, -event.deltaY * scale));
+    }
+  };
+
+  /** Turns a finished draft into a stroke and sends or stores it. */
+  private saveStroke(draft: { points: BoardPoint[]; tool: BoardStroke['tool']; color: string; width: number }, text?: string): void {
+    const view = this.view;
+    if (!view) return;
     const boardId = this.boardId();
+    if (boardAtCapacity(this.allStrokes(boardId), boardId)) return;
     const online = view.network.phase === 'JOINED';
     const list = online ? [...view.network.strokes, ...this.pendingStrokes] : this.offlineStrokes;
     const stroke = makeStroke(boardId, view.identity.fingerprint, nextSequence(list, view.identity.fingerprint, boardId),
-      draft.tool, draft.color, draft.width, draft.points);
+      draft.tool, draft.color, draft.width, draft.points, undefined, text);
     if (online) {
       this.pendingStrokes.push(stroke);
       this.run(() => this.actions.sendStroke(stroke));
     } else this.offlineStrokes.push(stroke);
     this.refreshBoardControls();
-  };
+  }
 
   private onKeyDown = (event: KeyboardEvent): void => {
     if (!this.view || this.view.lockedIdentity || this.isTypingTarget(event.target)) return;
@@ -1257,13 +1494,15 @@ class StudyUI {
       if (this.pane === 'world') {
         const closest = closestDoor(this.localPosition, occupiedParcels(this.view));
         if (closest) this.openHouse(closest.ownerId);
-      } else if (this.pane === 'house') this.leaveCurrentHouse();
+      } else if (this.pane === 'house' && atHouseDoor(this.localPosition)) this.leaveCurrentHouse();
     }
     if (event.code === 'Space' && this.view.network.media.pushToTalk && this.view.network.media.micEnabled && !event.repeat) {
       this.actions.setTalking(true);
       event.preventDefault();
     }
-    if (key === 'escape' && (this.pane === 'house' || this.pane === 'board')) this.leaveCurrentHouse();
+    // Escape steps back one level: board -> room, room -> village.
+    if (key === 'escape' && this.pane === 'board' && this.houseOwnerId) this.returnToRoom();
+    else if (key === 'escape' && (this.pane === 'house' || this.pane === 'board')) this.leaveCurrentHouse();
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
@@ -1310,11 +1549,15 @@ class StudyUI {
         const people = this.visiblePeople(view);
         if (this.pane === 'world') drawWorld(ctx, occupiedParcels(view), people, dt);
         else drawHouseInterior(ctx, this.previewHouse || this.currentHouse() || view.ownHouse, people, this.selectedFurnitureId, dt);
+        const prompt = this.pane === 'world'
+          ? (closestDoor(this.localPosition, occupiedParcels(view)) ? 'E · Entrar' : null)
+          : (atHouseDoor(this.localPosition) ? 'E · Salir' : null);
+        if (prompt) drawPrompt(ctx, this.localPosition.x, this.localPosition.y - 66, prompt);
       }
     }
     if (view && this.pane === 'board') {
       const ctx = this.boardCanvas.getContext('2d');
-      if (ctx) drawBoard(ctx, visibleStrokes(this.allStrokes(this.boardId()), this.boardId(), this.hiddenAuthors), this.boardDraft);
+      if (ctx) drawBoard(ctx, visibleStrokes(this.allStrokes(this.boardId()), this.boardId(), this.hiddenAuthors), this.boardDraft, this.boardCamera());
     }
     this.raf = requestAnimationFrame(this.tick);
   };

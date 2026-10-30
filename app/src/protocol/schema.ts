@@ -27,12 +27,15 @@ export const memberSchema = z.strictObject({
   identity: identitySchema, endpoint: endpointSchema, slot: z.number().int().min(0).max(5),
   connected: z.boolean(), houseId: fingerprintSchema.nullable(), position: positionSchema,
 });
+const boardCoordinate = z.number().min(-LIMITS.boardExtent).max(LIMITS.boardExtent);
 export const strokeSchema = z.strictObject({
   id: idSchema, author: fingerprintSchema, boardId: fingerprintSchema, seq: integer,
-  color, width: z.number().min(1).max(32), tool: z.enum(['pen', 'line', 'rectangle']),
-  points: z.array(z.strictObject({ x: z.number().min(0).max(768), y: z.number().min(0).max(432) })).min(1).max(LIMITS.strokePoints),
+  color, width: z.number().min(1).max(32), tool: z.enum(['pen', 'line', 'rectangle', 'text']),
+  points: z.array(z.strictObject({ x: boardCoordinate, y: boardCoordinate })).min(1).max(LIMITS.strokePoints),
   deleted: z.boolean(),
-});
+  // Only text notes carry text, and every text note must carry some.
+  text: z.string().min(1).max(LIMITS.boardText).optional(),
+}).refine((stroke) => (stroke.tool === 'text') === (stroke.text !== undefined), { message: 'text belongs to text notes only' });
 const signature = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
 export const signedHouseSchema = z.strictObject({ house: houseSchema, signature });
 export const signedStrokeSchema = z.strictObject({ stroke: strokeSchema, signature });
