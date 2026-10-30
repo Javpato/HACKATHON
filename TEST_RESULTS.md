@@ -24,6 +24,11 @@
 | GitHub Actions desktop build | PASS on both runners (run `41121041595`): `windows-2022` produced `StudyVillage_0.1.0_x64-setup.exe` (NSIS, PE32, 2.7 MB); `ubuntu-22.04` produced `StudyVillage_0.1.0_amd64.deb` (4.1 MB) and `StudyVillage_0.1.0_amd64.AppImage` (79 MB). Unsigned. |
 | Native Linux runtime (Tauri/WebKitGTK) | PASS, first observation: the CI AppImage launched on Linux Mint 22.3 / Cinnamon X11, opened a real 2560x1408 `StudyVillage` window and rendered the full UI (house interior, furniture list, nav, panels). Only benign `xapp-gtk3-module` GTK warnings. |
 | Windows runtime | UNVERIFIED; the installer exists and is a valid PE32 NSIS binary, but it has not been installed or launched on Windows. |
+| Visual overhaul: render loop | PASS, 61 rAF frames/s measured in page; frame pacing p50 16.7 ms, p95 16.8 ms idle, walking and indoors at 1920x1080 after caching the vignette and glow gradients (p95 was 33.4 ms before caching). |
+| Visual overhaul: character animation | PASS, 4 of 4 consecutive frames differ while walking; idle breathing observed; remote peers interpolated, local peer drawn at exact position. |
+| Visual overhaul: reduced motion | PASS, under `prefers-reduced-motion: reduce` the scene is byte-identical across 1 s with no input, and still responds to keys. Covered by e2e. |
+| Visual overhaul: layout | PASS, zero horizontal overflow at 1600, 900 and 420 px wide; zero console errors in all three. |
+| Visual overhaul: appearance | Reviewed by screenshot at each iteration. Browser only; WebKitGTK rendering of the new CSS is NOT yet verified. |
 
 Local environment: Linux Mint 22.3 (Ubuntu noble), Cinnamon X11, x86_64. GTK/WebKitGTK runtime libraries exist; pkg-config development metadata is absent. `sudo -n true` reports a password is required. No system package installation was performed.
 

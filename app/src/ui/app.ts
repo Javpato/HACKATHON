@@ -12,6 +12,7 @@ import { drawHouseInterior } from '../house/draw';
 import { BOARD_COLORS, boardAtCapacity, clampBoardPoint, makeStroke, newestOwnStroke, nextSequence, visibleStrokes } from '../whiteboard/model';
 import { drawBoard } from '../whiteboard/draw';
 import { WORLD_SPAWN, closestDoor, occupiedParcels, pointInRect, stepPosition, worldObstacles } from '../world/model';
+import { advanceAnim } from './art';
 import { drawWorld, type DrawPerson } from '../world/draw';
 
 type Pane = 'world' | 'house' | 'board' | 'editor' | 'contacts' | 'diagnostics';
@@ -1227,12 +1228,13 @@ class StudyUI {
   }
 
   private tick = (now: number): void => {
-    if (document.hidden || (this.lastFrame && now - this.lastFrame < 1000 / 30)) {
+    if (document.hidden || (this.lastFrame && now - this.lastFrame < 1000 / 61)) {
       if (document.hidden) this.lastFrame = now;
       this.raf = requestAnimationFrame(this.tick); return;
     }
     const dt = this.lastFrame ? Math.min((now - this.lastFrame) / 1000, 0.05) : 0;
     this.lastFrame = now;
+    advanceAnim(dt);
     const view = this.view;
     if (view && (this.pane === 'world' || this.pane === 'house')) {
       const vector = {
@@ -1252,8 +1254,8 @@ class StudyUI {
       const ctx = this.stageCanvas.getContext('2d');
       if (ctx) {
         const people = this.visiblePeople(view);
-        if (this.pane === 'world') drawWorld(ctx, occupiedParcels(view), people);
-        else drawHouseInterior(ctx, this.previewHouse || this.currentHouse() || view.ownHouse, people, this.selectedFurnitureId);
+        if (this.pane === 'world') drawWorld(ctx, occupiedParcels(view), people, dt);
+        else drawHouseInterior(ctx, this.previewHouse || this.currentHouse() || view.ownHouse, people, this.selectedFurnitureId, dt);
       }
     }
     if (view && this.pane === 'board') {

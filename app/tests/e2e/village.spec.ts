@@ -81,25 +81,43 @@ test('drawing on the board marks the canvas and undo reverts exactly that stroke
   await expect.poll(async () => Buffer.compare(blank, await canvas.screenshot()) === 0).toBe(true);
 });
 
-test('the village canvas is still when idle and repaints when the avatar walks', async ({ page }) => {
+test.describe('with decorative motion suppressed', () => {
+  // The village animates on its own (tree sway, drifting motes, lamp flicker),
+  // so a still frame is only guaranteed under reduced motion. Asking for it
+  // here both exercises that accessibility path and restores a clean control
+  // for the movement assertion below.
+  test.use({ reducedMotion: 'reduce' });
+
+  test('the scene holds completely still and only input moves the character', async ({ page }) => {
+    await page.goto('/');
+    const canvas = page.locator('canvas:visible').first();
+    await expect(canvas).toBeVisible();
+    await canvas.click({ position: { x: 400, y: 400 } });
+
+    // Control: with decorative motion off and no input, nothing may repaint.
+    const idleStart = await canvas.screenshot();
+    await page.waitForTimeout(1_000);
+    expect(Buffer.compare(idleStart, await canvas.screenshot())).toBe(0);
+
+    for (let i = 0; i < 6; i += 1) {
+      await page.keyboard.down('KeyA');
+      await page.waitForTimeout(110);
+      await page.keyboard.up('KeyA');
+    }
+
+    await expect
+      .poll(async () => Buffer.compare(idleStart, await canvas.screenshot()) !== 0)
+      .toBe(true);
+  });
+});
+
+test('decorative motion runs when reduced motion is not requested', async ({ page }) => {
   await page.goto('/');
   const canvas = page.locator('canvas:visible').first();
   await expect(canvas).toBeVisible();
-  await canvas.click({ position: { x: 400, y: 400 } });
-
-  // Control: with no input the scene must not repaint, so a later difference
-  // can only come from the keyboard and not from an idle animation loop.
-  const idleStart = await canvas.screenshot();
-  await page.waitForTimeout(1_200);
-  expect(Buffer.compare(idleStart, await canvas.screenshot())).toBe(0);
-
-  for (let i = 0; i < 6; i += 1) {
-    await page.keyboard.down('KeyA');
-    await page.waitForTimeout(120);
-    await page.keyboard.up('KeyA');
-  }
-
+  // Without the preference the scene is alive even with no input at all.
+  const first = await canvas.screenshot();
   await expect
-    .poll(async () => Buffer.compare(idleStart, await canvas.screenshot()) !== 0)
+    .poll(async () => Buffer.compare(first, await canvas.screenshot()) !== 0, { timeout: 4_000 })
     .toBe(true);
 });
