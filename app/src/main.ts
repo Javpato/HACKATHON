@@ -1,2 +1,3 @@
 import './style.css';
-document.querySelector<HTMLDivElement>('#app')!.textContent = 'StudyVillage · Preparando el vecindario…';
+import { mountDiagnostic } from './diagnostics/page';
+mountDiagnostic(document.querySelector<HTMLDivElement>('#app')!);
