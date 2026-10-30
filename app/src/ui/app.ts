@@ -54,6 +54,57 @@ function select(options: readonly { value: string; label: string }[]): HTMLSelec
   return element;
 }
 
+/**
+ * Pixel icon set for navigation, drawn as rects on a shared 12x12 grid.
+ * These replace a row of mismatched Unicode glyphs (a house, a card suit, a
+ * command key) that came from unrelated typefaces and never matched the game
+ * art. Every icon inherits currentColor, so active and hover states just work.
+ */
+const ICON_GRID = 12;
+const ICONS: Record<string, readonly (readonly [number, number, number, number])[]> = {
+  // Built as outlines with real gaps. A solid body with same-coloured detail
+  // drawn on top reads as a featureless blob at 16px, so interior detail here
+  // is negative space instead.
+  // Two rooftops on a ground line: the village.
+  world: [[2, 3, 2, 1], [1, 4, 4, 1], [1, 5, 1, 6], [4, 5, 1, 6], [2, 8, 2, 3],
+    [8, 5, 2, 1], [7, 6, 4, 1], [7, 7, 1, 4], [10, 7, 1, 4],
+    [0, 11, 12, 1]],
+  // One house: roof, two walls, an open doorway.
+  house: [[5, 1, 2, 1], [4, 2, 4, 1], [3, 3, 6, 1], [2, 4, 8, 1],
+    [2, 5, 2, 6], [8, 5, 2, 6], [4, 10, 4, 1], [5, 7, 2, 3]],
+  // An easel: framed sheet with two marks, on a stand.
+  board: [[1, 1, 10, 1], [1, 7, 10, 1], [1, 2, 1, 5], [10, 2, 1, 5],
+    [3, 3, 5, 1], [3, 5, 3, 1], [5, 8, 2, 2], [3, 10, 6, 1]],
+  // A page of code: framed, with three lines of text.
+  editor: [[2, 0, 8, 1], [2, 11, 8, 1], [2, 1, 1, 10], [9, 1, 1, 10],
+    [4, 3, 4, 1], [4, 5, 3, 1], [4, 7, 4, 1]],
+  // Two figures side by side.
+  contacts: [[7, 1, 3, 3], [6, 5, 5, 3], [2, 3, 3, 3], [1, 7, 5, 4]],
+  // A pulse trace.
+  diagnostics: [[0, 6, 3, 1], [3, 4, 1, 3], [4, 2, 1, 2], [5, 2, 1, 6],
+    [6, 7, 1, 2], [7, 6, 1, 2], [8, 6, 4, 1]],
+};
+function icon(name: string): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${ICON_GRID} ${ICON_GRID}`);
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('fill', 'currentColor');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  for (const [x, y, w, h] of ICONS[name] || ICONS.house) {
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', String(x));
+    rect.setAttribute('y', String(y));
+    rect.setAttribute('width', String(w));
+    rect.setAttribute('height', String(h));
+    svg.append(rect);
+  }
+  return svg;
+}
+
 function setText(element: HTMLElement, value: string): void {
   if (element.textContent !== value) element.textContent = value;
 }
@@ -312,13 +363,15 @@ class StudyUI {
 
     const nav = node('nav', 'sv-nav');
     nav.setAttribute('aria-label', 'Secciones');
-    const entries: [Pane, string, string][] = [
-      ['world', '⌂', 'La aldea'], ['house', '▣', 'Mi casa'], ['board', '✎', 'Pizarra'],
-      ['editor', '⌘', 'Editor local'], ['contacts', '♧', 'Contactos'], ['diagnostics', '✦', 'Diagnóstico'],
+    const entries: [Pane, string][] = [
+      ['world', 'La aldea'], ['house', 'Mi casa'], ['board', 'Pizarra'],
+      ['editor', 'Editor local'], ['contacts', 'Contactos'], ['diagnostics', 'Diagnóstico'],
     ];
-    for (const [pane, icon, title] of entries) {
+    for (const [pane, title] of entries) {
       const item = button('', 'sv-nav-item');
-      append(item, node('span', 'sv-nav-icon', icon), node('span', '', title));
+      const glyph = node('span', 'sv-nav-icon');
+      glyph.append(icon(pane));
+      append(item, glyph, node('span', '', title));
       item.addEventListener('click', () => this.navigate(pane));
       this.navButtons.set(pane, item);
       nav.append(item);
@@ -743,10 +796,11 @@ class StudyUI {
     this.housesList.replaceChildren();
     for (const item of occupied) {
       const row = button('', 'sv-house-row');
-      const icon = node('span', 'sv-house-icon', item.house.theme === 'peach' ? '▰' : '⌂');
+      const houseIcon = node('span', 'sv-house-icon');
+      houseIcon.append(icon('house'));
       const info = node('span', 'sv-house-row-text');
       append(info, node('strong', '', item.house.name), node('small', '', item.isOwn ? 'Tu casa' : `${item.name} · ${this.accessLabel(item.house.access)}`));
-      append(row, icon, info, node('span', '', '→'));
+      append(row, houseIcon, info, node('span', '', '→'));
       row.disabled = !item.isOwn && (view.network.phase !== 'JOINED' || item.house.access === 'locked');
       row.addEventListener('click', () => this.openHouse(item.ownerId));
       this.housesList.append(row);

@@ -268,7 +268,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px;
   background: var(--ember);
 }
-.sv-nav-icon { width: 18px; flex: none; text-align: center; font-size: 15px; line-height: 1; opacity: .92; }
+.sv-nav-icon { width: 16px; height: 16px; flex: none; display: grid; place-items: center; opacity: .9; }
+.sv-nav-item.is-active .sv-nav-icon { opacity: 1; color: var(--ember-dark); }
+.sv-house-icon svg { width: 13px; height: 13px; }
 
 .sv-session-card { padding: 15px; }
 .sv-session-card h3 { margin-bottom: 2px; }
