@@ -13,6 +13,8 @@ npm ci
 npm run dev
 ```
 
+También existe `npm run demo`, que levanta Vite y abre el navegador. El recorrido guiado de lo que ya funciona está en [DEMO](docs/DEMO.md).
+
 Abre `http://127.0.0.1:1420`. El servidor Vite es solo una herramienta local de desarrollo; la app empaquetada carga los recursos incluidos y no necesita Node ni un servidor de aplicación.
 
 Para el primer gate de medios, abre `http://127.0.0.1:1420/?diagnostic=1`. Permite comprobar APIs, solicitar micrófono/pantalla, detener pistas, exportar resultados y ejecutar un loopback de medios sintéticos. La prueba sintética no valida una captura real ni otro equipo.
@@ -95,11 +97,13 @@ Los tests de navegador usan Chrome del sistema (`/usr/bin/google-chrome`); se pu
 
 Los contratos están en [CONTRACTS.md](docs/CONTRACTS.md). El integrador controla tipos, bootstrap, dependencias y configuración. Usar una rama/worktree por agente y propiedad exclusiva de módulos; integrar solo tras tests. No pegar secretos, invitaciones o rutas en logs ni PR.
 
-Git local inicializado. `gh auth status` informa token inválido: no hay repo remoto creado. Tras reautenticar y decidir cuenta/visibilidad, el humano puede crear uno privado:
+Git local inicializado y publicado en el repositorio **privado** `Javpato/HACKATHON`. Para continuar en otro equipo:
 
 ```bash
-gh auth login -h github.com
-gh repo create studyvillage --private --source=. --remote=origin --push
+git clone https://github.com/Javpato/HACKATHON.git
+cd HACKATHON && npm ci && npm run demo
 ```
+
+El repositorio es privado: hace falta acceso con la cuenta propietaria o como colaborador. Los workflows de `.github/workflows/` siguen sin ejecutarse de forma remota.
 
 No ejecutar publicación pública sin decisión humana. Código y assets tienen decisiones de licencia separadas pendientes; [ASSETS_LICENSES.md](ASSETS_LICENSES.md) registra la procedencia. Las referencias oficiales de [Tauri](https://v2.tauri.app/), [PeerJS](https://peerjs.com/client/getting-started) y [rusqlite](https://docs.rs/rusqlite/) documentan APIs, no validan nuestro hardware.

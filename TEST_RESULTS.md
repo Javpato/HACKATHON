@@ -15,7 +15,12 @@
 | Real microphone / screen capture | UNVERIFIED; no claim of observation |
 | Two Linux machines / different networks | UNVERIFIED; no second host supplied |
 | Windows build / runtime | UNVERIFIED; workflow configured only |
-| GitHub authentication | FAIL: invalid existing token; no repository created or workflow run |
+| GitHub authentication | PASS: authenticated as `Javpato`; private repo `Javpato/HACKATHON` created and `main` pushed. No workflow run observed yet. |
+| Vitest full suite | PASS, 44 tests in 9 files |
+| Vite production build | PASS, full app bundle (~117 kB bootstrap chunk) |
+| Playwright browser suite | PASS, 9 tests: 3 diagnostic + 6 local village |
+| Browser console on load | PASS, zero errors in dev and in `preview` production bundle |
+| Local UI navigation / persistence / board undo / avatar movement | PASS, covered by `app/tests/e2e/village.spec.ts` |
 
 Local environment: Linux Mint 22.3 (Ubuntu noble), Cinnamon X11, x86_64. GTK/WebKitGTK runtime libraries exist; pkg-config development metadata is absent. `sudo -n true` reports a password is required. No system package installation was performed.
 

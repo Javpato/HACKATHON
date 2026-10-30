@@ -8,5 +8,9 @@ Native storage: five real Rust/SQLite tests PASS with isolated Rust 1.99.1 toolc
 
 Networking/security (Astra Max) and Canvas/UI (Sol Max) are being implemented in separate exclusive worktrees. Root owns contracts/native/persistence/bootstrap/integration. GitHub remains blocked by invalid authentication. No two-host or Windows runtime evidence.
 
-Next: integrate authenticated network and Canvas/board UI; browser end-to-end checks; independent read-only review; final tests and blocker inventory.
+Gate 2 (browser demo): the integrated app runs. `npm run typecheck`, `npm test` (44 tests / 9 files) and `npm run build` pass; the Playwright suite is now 9 tests after adding `app/tests/e2e/village.spec.ts`. Observed in Chrome on both the dev server and the `preview` production bundle with zero console errors. Covered locally: section navigation and `aria-current`, display-name persistence across reload, board stroke plus exact undo, and avatar movement proven against a still-canvas control. A declared favicon was added, removing the only console 404. Publishing: private repo `Javpato/HACKATHON` exists and `main` is pushed.
+
+Still UNVERIFIED and unchanged by Gate 2: real microphone/screen capture, two Linux hosts on different networks, Tauri/WebKitGTK runtime behaviour, and native Linux/Windows packaging (Linux build still BLOCKED in `glib-sys`). The browser demo is Chrome evidence only.
+
+Next: real-hardware capture matrix, a second host for signaling/consent, unblock the native build (GTK/WebKit dev packages need sudo), run the GitHub workflows remotely, and independent read-only review.
 

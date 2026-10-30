@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "vite --config app/vite.config.ts",
+    "demo": "vite --config app/vite.config.ts --open",
     "typecheck": "tsc --noEmit -p app/tsconfig.json",
     "test": "vitest run --config app/vitest.config.ts",
     "test:watch": "vitest --config app/vitest.config.ts",
