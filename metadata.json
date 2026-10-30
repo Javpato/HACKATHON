@@ -1,0 +1,8 @@
+{
+  "name": "StudyVillage",
+  "description": "Un pequeño vecindario para estudiar juntos. Tus proyectos se quedan contigo.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
