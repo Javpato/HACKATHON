@@ -96,7 +96,10 @@ export class SaveQueue {
   constructor(private store: LocalStore, private onError: (error: unknown) => void) {}
   save(data: LocalData): Promise<void> {
     this.pending = parseLocalData(data);
-    if (!this.active) this.active = this.drain().finally(() => { this.active = null; });
+    if (!this.active) this.active = this.drain().finally(() => {
+      this.active = null;
+      if (this.pending) void this.save(this.pending);
+    });
     return this.active;
   }
   private async drain() {
@@ -105,5 +108,5 @@ export class SaveQueue {
       try { await this.store.save(data); } catch (error) { this.onError(error); }
     }
   }
-  async flush() { await this.active; }
+  async flush() { while (this.active) await this.active; }
 }

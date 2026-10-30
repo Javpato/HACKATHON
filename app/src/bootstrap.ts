@@ -55,7 +55,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
   const replaceClient = () => { unsubscribe(); client.dispose(); client = new VillageClient(identity, ownHouse); subscribe(); };
   const requireOffline = () => { if (activePhases.has(network.phase)) throw new Error('Sal del vecindario antes de cambiar tu identidad o perfil.'); };
   const requireUnlocked = () => { if (lockedIdentity) throw new Error('Desbloquea tu identidad guardada antes de conectar.'); };
-  const run = async (action: () => void | Promise<void>) => { try { await action(); } catch (error) { report(error); } };
+  const run = async (action: () => void | Promise<void>) => { try { await action(); } catch (error) { report(error); throw error; } };
   const runSync = (action: () => void) => { try { action(); } catch (error) { report(error); } };
 
   const actions: AppActions = {
@@ -106,8 +106,10 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
       requireOffline(); requireUnlocked();
       if (passphrase.length < 12) throw new Error('Usa una contraseña de al menos 12 caracteres.');
       const encrypted = await encryptIdentity(identity, passphrase);
+      const previous = data.encryptedIdentity;
       data.encryptedIdentity = encrypted; await persist();
-      if (!savingFailed) notice = 'Identidad guardada cifrada. Necesitarás esta contraseña al reiniciar.';
+      if (savingFailed) { data.encryptedIdentity = previous; throw new Error('No se pudo guardar la identidad. Comprueba el almacenamiento local.'); }
+      notice = 'Identidad guardada cifrada. Necesitarás esta contraseña al reiniciar.';
       update();
     }),
     unlockIdentity: passphrase => run(async () => {
@@ -141,7 +143,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
       else showLocalPreview(file);
       await persist(); notice = 'Archivo abierto localmente. El alias público del mueble no ha cambiado.'; update();
     }),
-    saveEditor: text => run(async () => { if (new TextEncoder().encode(text).length > 1_048_576) throw new Error('El editor admite hasta 1 MiB.'); data.editor = text; await persist(); if (!savingFailed) notice = 'Snippet guardado solo en este equipo.'; update(); }),
+    saveEditor: text => run(async () => { if (new TextEncoder().encode(text).length > 1_048_576) throw new Error('El editor admite hasta 1 MiB.'); data.editor = text; await persist(); if (savingFailed) throw new Error('No se pudo guardar. Tus cambios siguen en el editor.'); notice = 'Snippet guardado solo en este equipo.'; update(); }),
     exportEditor: text => downloadLocal('studyvillage-snippet.txt', new Blob([text], { type: 'text/plain;charset=utf-8' })),
     exportBoard: canvas => { canvas.toBlob(blob => { if (blob) downloadLocal('studyvillage-pizarra.png', blob); else report(new Error('No se pudo exportar la pizarra.')); }, 'image/png'); },
     runDiagnostic: kind => diagnostic.run(kind),

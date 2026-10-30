@@ -115,6 +115,9 @@ class StudyUI {
   private saveIdentityButton!: HTMLButtonElement;
   private identityStatus!: HTMLElement;
   private lockOverlay!: HTMLElement;
+  private lockMessage!: HTMLElement;
+  private unlockToggleButton!: HTMLButtonElement;
+  private lockDismissed = false;
   private unlockInput!: HTMLInputElement;
   private phaseText!: HTMLElement;
   private joinInput!: HTMLInputElement;
@@ -266,6 +269,11 @@ class StudyUI {
     const unlockButton = button('Desbloquear identidad', 'sv-button sv-button-primary');
     unlockButton.type = 'submit';
     lockCard.append(unlockButton);
+    this.lockMessage = node('p', 'sv-error');
+    this.lockMessage.setAttribute('role', 'status');
+    const stayOffline = button('Continuar sin conexión', 'sv-button sv-button-outline');
+    stayOffline.addEventListener('click', () => { this.lockDismissed = true; this.refresh(); });
+    append(lockCard, this.lockMessage, stayOffline);
     lockCard.addEventListener('submit', (event) => {
       event.preventDefault();
       const passphrase = this.unlockInput.value;
@@ -343,7 +351,10 @@ class StudyUI {
     append(this.inviteBox, node('span', 'sv-field-label', 'Invitación actual'), this.inviteValue,
       this.copyInviteButton, this.rotateInviteButton);
     this.leaveButton = button('Salir de la sesión', 'sv-link-button sv-danger-text');
-    this.leaveButton.addEventListener('click', () => this.run(() => this.actions.leave()));
+    this.leaveButton.addEventListener('click', () => {
+      if (this.view?.network.isHost && !window.confirm('¿Cerrar el vecindario para todas las personas? Tu casa y tus archivos locales se conservan.')) return;
+      this.run(() => this.actions.leave());
+    });
     append(session, this.openButton, joinForm, this.inviteBox, this.leaveButton);
     append(sidebar, profile, nav, session);
   }
@@ -516,7 +527,9 @@ class StudyUI {
       controls.append(item);
     }
     this.diagnosticList = node('div', 'sv-diagnostic-list');
-    append(this.diagnosticsPane, controls, this.diagnosticList);
+    const standalone = node('a', 'sv-link-button', 'Abrir diagnóstico con vista previa y exportación ↗');
+    standalone.href = '?diagnostic=1';
+    append(this.diagnosticsPane, controls, standalone, this.diagnosticList);
   }
 
   private buildInspector(inspector: HTMLElement): void {
@@ -538,6 +551,9 @@ class StudyUI {
     this.buildMedia();
     const identityCard = node('section', 'sv-card');
     append(identityCard, node('div', 'sv-eyebrow', 'IDENTIDAD'), node('h3', '', 'Guardar protegida'));
+    this.unlockToggleButton = button('Desbloquear identidad', 'sv-button sv-button-small');
+    this.unlockToggleButton.addEventListener('click', () => { this.lockDismissed = false; this.refresh(); this.unlockInput.focus(); });
+    identityCard.append(this.unlockToggleButton);
     this.identityStatus = node('p', 'sv-subtle');
     identityCard.append(this.identityStatus);
     const saveForm = node('form', 'sv-stack');
@@ -633,6 +649,7 @@ class StudyUI {
     append(controls, this.micButton, this.muteButton, this.deafenButton, this.pttButton, this.screenButton, this.stopScreenButton);
     this.mediaTiles = node('div', 'sv-media-tiles');
     append(this.mediaBox, this.mediaAudience, this.mediaStatus, this.mediaError, controls, this.mediaTiles,
+      node('p', 'sv-tiny', 'La captura puede mostrar notificaciones y contraseñas. Elige una ventana cuando el sistema lo permita.'),
       node('p', 'sv-tiny', 'Con pulsar para hablar activo, mantén la barra espaciadora.'));
   }
 
@@ -653,7 +670,7 @@ class StudyUI {
       : PHASE_LABEL[phase]);
     this.openButton.disabled = !ready || !['IDLE', 'CLOSED', 'DENIED', 'EXPIRED_INVITE', 'NETWORK_FAILED', 'KICKED'].includes(phase);
     this.joinButton.disabled = this.openButton.disabled;
-    this.joinInput.disabled = !this.openButton.disabled;
+    this.joinInput.disabled = this.openButton.disabled;
     show(this.inviteBox, view.network.isHost && !!view.network.invite);
     setInput(this.inviteValue, view.network.invite || '');
     this.copyInviteButton.disabled = !view.network.invite;
@@ -662,7 +679,9 @@ class StudyUI {
     const notice = view.network.error || this.localNotice || view.notice;
     show(this.noticeBox, !!notice);
     setText(this.noticeText, notice || '');
-    show(this.lockOverlay, view.lockedIdentity);
+    show(this.lockOverlay, view.lockedIdentity && !this.lockDismissed);
+    show(this.unlockToggleButton, view.lockedIdentity);
+    setText(this.lockMessage, view.notice || '');
     setText(this.identityStatus, view.identitySaved
       ? 'Identidad cifrada en este equipo. No se usa el llavero del sistema.'
       : 'Puedes cifrarla para recuperarla al volver. Sin guardar, vive solo en esta sesión.');
@@ -738,7 +757,7 @@ class StudyUI {
         const row = node('div', 'sv-person-row');
         const dot = node('span', 'sv-person-dot');
         dot.style.backgroundColor = member.identity.color;
-        const label = node('span', '', member.identity.displayName);
+        const label = node('span', '', `${member.identity.displayName} · ${member.identity.fingerprint.slice(0, 8)}`);
         append(row, dot, label);
         if (view.network.isHost && member.identity.fingerprint !== view.identity.fingerprint) {
           const kick = button('Sacar', 'sv-link-button sv-danger-text');
@@ -758,9 +777,9 @@ class StudyUI {
     const joins = view.network.isHost ? view.network.pendingJoins : [];
     const visits = view.network.pendingVisits.filter((request) => request.houseId === view.identity.fingerprint);
     show(this.approvalBox, joins.length + visits.length > 0);
-    for (const request of joins) this.approvalList.append(this.approvalRow(request.identity.displayName, 'Quiere entrar en la aldea',
+    for (const request of joins) this.approvalList.append(this.approvalRow(`${request.identity.displayName} · ${request.identity.fingerprint.slice(0, 12)}`, 'Quiere entrar en la aldea',
       () => this.actions.decideJoin(request.requestId, true), () => this.actions.decideJoin(request.requestId, false)));
-    for (const request of visits) this.approvalList.append(this.approvalRow(request.identity.displayName, 'Quiere visitar tu casa',
+    for (const request of visits) this.approvalList.append(this.approvalRow(`${request.identity.displayName} · ${request.identity.fingerprint.slice(0, 12)}`, 'Quiere visitar tu casa',
       () => this.actions.decideVisit(request.requestId, true), () => this.actions.decideVisit(request.requestId, false)));
   }
 
@@ -928,6 +947,7 @@ class StudyUI {
         const wrapper = node('div', 'sv-media-tile');
         const element = document.createElement(item.kind === 'screen' ? 'video' : 'audio');
         element.autoplay = true;
+        element.controls = !item.local;
         element.setAttribute('playsinline', '');
         if (item.local) element.muted = true;
         append(wrapper, node('strong', '', item.name), element);
@@ -1058,7 +1078,14 @@ class StudyUI {
     const selected = view.ownHouse.furniture.find((item) => item.id === this.selectedFurnitureId && item.kind === 'desk');
     const desk = selected || view.ownHouse.furniture.find((item) => item.kind === 'desk');
     if (!desk) { this.notify('Añade un escritorio en Mi casa para abrir un archivo.'); return; }
-    this.run(() => this.actions.openLocalFile(desk.id));
+    if (this.editorDirty && !window.confirm('¿Abrir otro archivo? Si eliges un texto, reemplazará los cambios sin guardar del editor.')) return;
+    const before = view.editorText;
+    this.run(async () => {
+      await this.actions.openLocalFile(desk.id);
+      if (this.view && this.view.editorText !== before) {
+        this.editorDirty = false; this.editorArea.value = this.view.editorText; this.refreshEditorStatus();
+      }
+    });
   }
 
   private insertSnippet(): void {
@@ -1200,6 +1227,10 @@ class StudyUI {
   }
 
   private tick = (now: number): void => {
+    if (document.hidden || (this.lastFrame && now - this.lastFrame < 1000 / 30)) {
+      if (document.hidden) this.lastFrame = now;
+      this.raf = requestAnimationFrame(this.tick); return;
+    }
     const dt = this.lastFrame ? Math.min((now - this.lastFrame) / 1000, 0.05) : 0;
     this.lastFrame = now;
     const view = this.view;
