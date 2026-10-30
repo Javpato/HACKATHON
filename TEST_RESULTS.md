@@ -21,6 +21,9 @@
 | Playwright browser suite | PASS, 9 tests: 3 diagnostic + 6 local village |
 | Browser console on load | PASS, zero errors in dev and in `preview` production bundle |
 | Local UI navigation / persistence / board undo / avatar movement | PASS, covered by `app/tests/e2e/village.spec.ts` |
+| GitHub Actions desktop build | PASS on both runners (run `41121041595`): `windows-2022` produced `StudyVillage_0.1.0_x64-setup.exe` (NSIS, PE32, 2.7 MB); `ubuntu-22.04` produced `StudyVillage_0.1.0_amd64.deb` (4.1 MB) and `StudyVillage_0.1.0_amd64.AppImage` (79 MB). Unsigned. |
+| Native Linux runtime (Tauri/WebKitGTK) | PASS, first observation: the CI AppImage launched on Linux Mint 22.3 / Cinnamon X11, opened a real 2560x1408 `StudyVillage` window and rendered the full UI (house interior, furniture list, nav, panels). Only benign `xapp-gtk3-module` GTK warnings. |
+| Windows runtime | UNVERIFIED; the installer exists and is a valid PE32 NSIS binary, but it has not been installed or launched on Windows. |
 
 Local environment: Linux Mint 22.3 (Ubuntu noble), Cinnamon X11, x86_64. GTK/WebKitGTK runtime libraries exist; pkg-config development metadata is absent. `sudo -n true` reports a password is required. No system package installation was performed.
 

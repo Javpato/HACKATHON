@@ -12,5 +12,9 @@ Gate 2 (browser demo): the integrated app runs. `npm run typecheck`, `npm test` 
 
 Still UNVERIFIED and unchanged by Gate 2: real microphone/screen capture, two Linux hosts on different networks, Tauri/WebKitGTK runtime behaviour, and native Linux/Windows packaging (Linux build still BLOCKED in `glib-sys`). The browser demo is Chrome evidence only.
 
-Next: real-hardware capture matrix, a second host for signaling/consent, unblock the native build (GTK/WebKit dev packages need sudo), run the GitHub workflows remotely, and independent read-only review.
+Gate 3 (desktop packaging): the `Desktop build only` workflow ran on GitHub and PASSED on both runners. Windows produced an NSIS `StudyVillage_0.1.0_x64-setup.exe`; Linux produced a `.deb` and an `.AppImage`. The local build stays BLOCKED on `glib-sys` because GTK/WebKit dev packages need sudo here, but CI installs them, so packaging is no longer a project blocker, only a local-environment one.
+
+The Linux AppImage was then launched on this machine and rendered the full UI in a real WebKitGTK window. That is the first native runtime evidence; Tauri/WebKitGTK is no longer unverified on Linux. Windows runtime remains UNVERIFIED: the installer is a valid PE32 NSIS binary but nobody has installed or run it. Both packages are unsigned, so Windows SmartScreen will warn.
+
+Next: install/run the Windows installer on real Windows, real-hardware capture matrix, a second host for signaling/consent, decide signing and licence before any public distribution, and independent read-only review.
 

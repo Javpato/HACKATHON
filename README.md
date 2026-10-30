@@ -2,7 +2,7 @@
 
 Un pequeño vecindario para estudiar juntos: casas propias, avatares, voz, pantalla y pizarra. Los proyectos permanecen en el equipo de su dueño. Interfaz en español, código TypeScript + Canvas, shell Tauri 2.
 
-**Estado: implementación en integración; P0 no certificado.** La prueba entre dos Linux, la captura real y el empaquetado nativo todavía requieren evidencia. Consulta [STATUS](docs/STATUS.md) y [TEST_RESULTS](TEST_RESULTS.md). No se ha publicado el proyecto ni decidido una licencia final.
+**Estado: implementación en integración; P0 no certificado.** El empaquetado nativo ya pasa en CI y el `.AppImage` arranca en Linux. Siguen sin evidencia la prueba entre dos equipos, la captura real de micrófono/pantalla y la ejecución en Windows. Consulta [STATUS](docs/STATUS.md) y [TEST_RESULTS](TEST_RESULTS.md). No se ha publicado el proyecto ni decidido una licencia final.
 
 ## Ejecutar la versión de desarrollo
 
@@ -49,7 +49,7 @@ npm run desktop:dev
 npm run desktop:build
 ```
 
-Los paquetes se generan en `app/src-tauri/target/release/bundle/`. La configuración incluye deb y AppImage. **Este entorno no ha generado esos paquetes:** faltan las bibliotecas de desarrollo y el intento observado falla en `glib-sys` por ausencia de `glib-2.0.pc`. No instalar a ciegas ni marcar este gate como aprobado.
+Los paquetes se generan en `app/src-tauri/target/release/bundle/`. La configuración incluye deb y AppImage. **Este entorno no los genera:** faltan las bibliotecas de desarrollo y el intento observado falla en `glib-sys` por ausencia de `glib-2.0.pc`. En cambio el workflow de GitHub sí los produce, porque el runner instala esas bibliotecas. El `.AppImage` descargado de CI se ha ejecutado en este equipo y abre una ventana WebKitGTK real con la interfaz completa.
 
 Se instaló una toolchain aislada en `/tmp/studyvillage-cargo` y `/tmp/studyvillage-rustup` para probar SQLite. No se modificaron los perfiles de shell. Es temporal; para reutilizarla mientras exista:
 
@@ -70,7 +70,16 @@ npm ci
 npm run desktop:build -- --config src-tauri/tauri.windows.conf.json
 ```
 
-Se configura un instalador NSIS `.exe`. [.github/workflows/desktop.yml](.github/workflows/desktop.yml) compila Linux y Windows en runners de cada plataforma y conserva artifacts; no publica releases. El workflow aún no se ha ejecutado remotamente. Un build correcto sería `WINDOWS_BUILD_ONLY`, no una prueba de ejecución/captura; el instalador sin firma puede mostrar SmartScreen.
+Se configura un instalador NSIS `.exe`. [.github/workflows/desktop.yml](.github/workflows/desktop.yml) compila Linux y Windows en runners de cada plataforma y conserva artifacts; no publica releases.
+
+**El workflow ya se ha ejecutado y pasa en los dos runners.** Genera `StudyVillage_0.1.0_x64-setup.exe` (NSIS) en Windows y `.deb` + `.AppImage` en Linux. Descargar el instalador sin clonar nada:
+
+```bash
+gh run list --workflow "Desktop build only (no publication)"
+gh run download <run-id> -n StudyVillage-Windows-BUILD-ONLY -D ./descargas
+```
+
+Esto es `WINDOWS_BUILD_ONLY`: el `.exe` existe y es un PE32 NSIS válido, pero **nadie lo ha instalado ni ejecutado en Windows**. Va sin firmar, así que SmartScreen avisará.
 
 ## Comprobar
 
