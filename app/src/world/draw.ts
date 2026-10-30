@@ -1,7 +1,7 @@
 import { type PublicIdentity, type Position } from '../protocol/types';
 import {
   PALETTE, animClock, contactShadow, drawAvatar, drawTree, fill,
-  glowPool, hash01, ipx, plate, reducedMotion, seed, shade, text, trackCharacter,
+  glowPool, hash01, ipx, paintSceneFade, plate, reducedMotion, seed, shade, text, trackCharacter,
 } from '../ui/art';
 import { PARCELS, WORLD_TREES, type OccupiedParcel } from './model';
 
@@ -460,4 +460,5 @@ export function drawWorld(
 
   if (!calm) paintAmbience(ctx, time);
   paintVignette(ctx);
+  paintSceneFade(ctx, 'world', W, H);
 }

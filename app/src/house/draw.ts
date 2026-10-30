@@ -1,7 +1,7 @@
 import type { Furniture, PublicHouse } from '../protocol/types';
 import {
   PALETTE, animClock, contactShadow, drawAvatar, fill, glowPool, hash01,
-  ipx, plate, reducedMotion, seed, shade, text, trackCharacter,
+  ipx, paintSceneFade, plate, reducedMotion, seed, shade, text, trackCharacter,
 } from '../ui/art';
 import type { DrawPerson } from '../world/draw';
 import { furnitureRect } from './model';
@@ -417,4 +417,8 @@ export function drawHouseInterior(
   vignette.addColorStop(1, 'rgba(32,24,16,0.26)');
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, W, H);
+
+  // Keyed by owner, so stepping from one house into another also reads as a
+  // move rather than an instant content swap.
+  paintSceneFade(ctx, `house:${house.ownerId}`, W, H, '22,16,10');
 }

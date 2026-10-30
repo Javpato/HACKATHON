@@ -229,6 +229,36 @@ export function trackCharacter(id: string, position: Position, dt: number, smoot
   return { x: state.renderX, y: state.renderY };
 }
 
+/**
+ * Scene-change fade. The stage canvas is reused when moving between the
+ * village and a house, so no CSS animation retriggers; this gives that switch
+ * the same sense of travel without touching the view logic that owns the pane.
+ * Returns progress from 0 to 1, where 1 means the transition has finished.
+ */
+const SCENE_MS = 300;
+let sceneKey = '';
+let sceneStart = -1;
+
+export function sceneProgress(key: string): number {
+  if (key !== sceneKey) {
+    sceneKey = key;
+    sceneStart = frameClock;
+  }
+  if (sceneStart < 0) return 1;
+  if (reducedMotion()) return 1;
+  return Math.min(1, (frameClock - sceneStart) / (SCENE_MS / 1000));
+}
+
+/** Paints the fade for a scene change. A no-op once the transition is done. */
+export function paintSceneFade(ctx: CanvasRenderingContext2D, key: string, w: number, h: number, tint = '14,26,20'): void {
+  const t = sceneProgress(key);
+  if (t >= 1) return;
+  // Ease-out so the scene is legible almost immediately and the tail is gentle.
+  const alpha = Math.pow(1 - t, 2.2);
+  ctx.fillStyle = `rgba(${tint},${alpha.toFixed(3)})`;
+  ctx.fillRect(0, 0, w, h);
+}
+
 const SKIN = ['#8c5a3c', '#c98f63', '#f0c69a'];
 const HAIR = ['#2a2018', '#3f3124', '#5a4530'];
 
