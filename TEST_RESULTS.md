@@ -29,7 +29,8 @@
 | Visual overhaul: reduced motion | PASS, under `prefers-reduced-motion: reduce` the scene is byte-identical across 1 s with no input, and still responds to keys. Covered by e2e. |
 | Visual overhaul: layout | PASS, zero horizontal overflow at 1600, 900 and 420 px wide; zero console errors in all three. |
 | Visual overhaul: appearance | Reviewed by screenshot at each iteration in Chrome. |
-| Visual overhaul: native rendering | PASS, the CI AppImage from run `41130172908` was launched on Linux Mint and rendered the new interface correctly under WebKitGTK, chamfered `clip-path` panels included. That build predates the drawn nav icons and the scene fade, so those two are Chrome-only so far. |
+| Visual overhaul: native rendering | PASS, the CI AppImage from run `41131050489` was launched on Linux Mint and rendered the whole new interface under WebKitGTK: chamfered `clip-path` panels, parchment cards and all six drawn SVG navigation icons with the ember active state. |
+| Visual overhaul: native scene fade | PASS, driven through XTEST in the packaged app. Clicking "Mi casa" flipped the stage from green-dominant (G-R +38.3) to wood-dominant (G-R -26.1), confirming navigation, and mean luminance over the following frames ran 16.0, 54.1, 105.9, 120.5, 128.4 before settling at 131.0: an ease-out fade of roughly 275 ms against a 300 ms design. |
 
 Local environment: Linux Mint 22.3 (Ubuntu noble), Cinnamon X11, x86_64. GTK/WebKitGTK runtime libraries exist; pkg-config development metadata is absent. `sudo -n true` reports a password is required. No system package installation was performed.
 

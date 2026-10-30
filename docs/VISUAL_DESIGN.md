@@ -98,8 +98,9 @@ every exported draw signature kept its shape (the `dt` argument is optional).
 
 ## Known gaps
 
-- WebKitGTK rendering of the new CSS, in particular `clip-path` chamfers, has
-  not been confirmed in the packaged desktop app.
+- ~~WebKitGTK rendering of the new CSS~~ confirmed in the packaged app: the
+  chamfers, the parchment panels, the drawn icons and the scene fade all render
+  correctly. See TEST_RESULTS.
 - The interior still has a lot of open floor with the default six furniture
   items. More built-in fixtures would need either collision support from the
   model layer or placement restricted to the unwalkable margins.
