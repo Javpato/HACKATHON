@@ -24,6 +24,17 @@ npm run preview   # http://127.0.0.1:4173
 
 Ambos modos se han observado cargando sin errores en la consola.
 
+## El aspecto
+
+La interfaz es un marco oscuro de madera y pergamino alrededor de la escena,
+para que lo más luminoso de la pantalla sea la aldea. El arte es pixel art con
+un píxel virtual de 2 unidades y la luz siempre desde arriba a la izquierda.
+Los detalles están en [VISUAL_DESIGN](VISUAL_DESIGN.md).
+
+Si activas «reducir movimiento» en tu sistema, se detienen el balanceo de los
+árboles, las partículas, el parpadeo de las lámparas y la respiración del
+personaje. El ciclo de caminar se mantiene, porque indica un estado.
+
 ## Recorrido (unos 5 minutos)
 
 Todo lo siguiente es local: no sale ni un solo request fuera de `127.0.0.1`
@@ -41,6 +52,8 @@ mientras no pulses «Abrir mi aldea».
    arrastrando el ratón. «Deshacer» retira tu último trazo y deja el lienzo
    exactamente como estaba. Abajo tienes las capas por autor, con la casilla
    «Mis trazos» que solo oculta en tu vista, y «Exportar PNG».
+   Al cambiar entre la aldea y una casa verás un fundido corto: es la misma
+   superficie de dibujo, así que la transición se pinta en el lienzo.
 5. **Editor local.** Un cuaderno de código con «Insertar plantilla», «Abrir
    archivo local» y «Exportar copia». Los archivos no se suben a ningún sitio.
 6. **Contactos.** Exporta tu tarjeta e importa las de otras personas para
