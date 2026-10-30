@@ -12,6 +12,7 @@ const view = (members: ReturnType<typeof member>[], houses: PublicHouse[]): AppV
   identitySaved: false, lockedIdentity: false, notice: null, diagnostics: [], editorText: '',
   network: { phase: 'JOINED', isHost: true, sessionId: 's', invite: '', members, houses,
     pendingJoins: [], pendingVisits: [], strokes: [], hostGraceRemainingMs: null, error: null,
+    privateCall: { with: null, active: false, incoming: [] },
     media: { micEnabled: false, muted: false, deafened: false, pushToTalk: false, talking: false,
       screenPhase: 'OFF', localScreen: null, remote: [], audience: '', error: null } },
 });

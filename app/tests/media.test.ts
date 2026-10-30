@@ -29,8 +29,8 @@ function fakeEndpoint() {
   const endpoint = { call: (id: string, _stream: MediaStream, metadata: unknown) => { const call = new FakeCall(id, metadata); sent.push(call); return call; } } as unknown as TransportEndpoint;
   return { endpoint, sent };
 }
-const context = (): MediaContext => ({ sessionId: 'session', epoch: 1, houseId: 'a'.repeat(64), houseName: 'Prueba', identityId: 'a'.repeat(64), peers: [{ identityId: 'b'.repeat(64), endpoint: 'peer-b', receiveToken: 'x'.repeat(43), sendToken: 'y'.repeat(43) }] });
-const metadata = () => ({ v: 1, kind: 'audio', sessionId: 'session', epoch: 1, houseId: 'a'.repeat(64), identityId: 'b'.repeat(64), token: 'x'.repeat(43) });
+const context = (): MediaContext => ({ sessionId: 'session', epoch: 1, room: `house:${'a'.repeat(64)}`, roomName: 'Prueba', identityId: 'a'.repeat(64), peers: [{ identityId: 'b'.repeat(64), endpoint: 'peer-b', receiveToken: 'x'.repeat(43), sendToken: 'y'.repeat(43) }] });
+const metadata = () => ({ v: 2, kind: 'audio', sessionId: 'session', epoch: 1, room: `house:${'a'.repeat(64)}`, identityId: 'b'.repeat(64), token: 'x'.repeat(43) });
 
 describe('media lifecycle with explicitly FAKE devices and streams', () => {
   it('requests real-device adapter APIs only on gestures and requires an authorized room', async () => {
@@ -53,14 +53,14 @@ describe('media lifecycle with explicitly FAKE devices and streams', () => {
     manager.setMuted(true); expect(microphone.track.enabled).toBe(false);
     manager.setMuted(false); manager.setPushToTalk(true); expect(microphone.track.enabled).toBe(false);
     manager.setTalking(true); expect(microphone.track.enabled).toBe(true);
-    manager.setContext({ ...context(), houseId: 'c'.repeat(64), peers: [] });
+    manager.setContext({ ...context(), room: `house:${'c'.repeat(64)}`, peers: [] });
     expect(microphone.track.stopped).toBe(true); expect(screen.track.stopped).toBe(true);
     expect(transport.sent.every(call => call.closed)).toBe(true); expect(manager.view.screenPhase).toBe('OFF'); expect(manager.view.micEnabled).toBe(false);
     manager.dispose();
   });
   it('rejects strangers, wrong house/epoch/token, and stops remote audio on deafen and removal', () => {
     const manager = new MediaManager(() => {}); manager.setContext(context());
-    for (const data of [{ ...metadata(), epoch: 2 }, { ...metadata(), houseId: 'c'.repeat(64) }, { ...metadata(), token: 'z'.repeat(43) }, { ...metadata(), identityId: 'c'.repeat(64) }]) {
+    for (const data of [{ ...metadata(), epoch: 2 }, { ...metadata(), room: `house:${'c'.repeat(64)}` }, { ...metadata(), room: 'village' }, { ...metadata(), token: 'z'.repeat(43) }, { ...metadata(), identityId: 'c'.repeat(64) }]) {
       const call = new FakeCall('peer-b', data); manager.receive(call); expect(call.closed).toBe(true); expect(call.answered).toBe(false);
     }
     const stranger = new FakeCall('peer-stranger', metadata()); manager.receive(stranger); expect(stranger.closed).toBe(true);
@@ -79,6 +79,34 @@ describe('media lifecycle with explicitly FAKE devices and streams', () => {
     const requesting = manager.startScreen(); expect(manager.view.screenPhase).toBe('REQUESTING_OS_PERMISSION');
     manager.suspend(); release(screen.stream); await requesting;
     expect(screen.track.stopped).toBe(true); expect(transport.sent).toHaveLength(0); expect(manager.view.localScreen).toBeNull(); manager.dispose();
+  });
+  it('keeps the mic when entering a chosen private call, and revokes it when leaving for a wider room', async () => {
+    const audio = fakeStream('audio');
+    const manager = new MediaManager(() => {}, { getUserMedia: async () => audio.stream });
+    manager.attach(fakeEndpoint().endpoint);
+    manager.setContext({ ...context(), room: 'village', roomName: 'La aldea' });
+    await manager.toggleMicrophone();
+    expect(manager.view.micEnabled).toBe(true);
+    // Into a private call: an audience of one you picked, so capture stays on.
+    manager.setContext({ ...context(), room: `pair:${'a'.repeat(64)}:${'b'.repeat(64)}`, roomName: 'Privado' });
+    expect(manager.view.micEnabled).toBe(true);
+    expect(audio.track.stopped).toBe(false);
+    // Hanging up widens the audience again, so capture is revoked.
+    manager.setContext({ ...context(), room: 'village', roomName: 'La aldea' });
+    expect(manager.view.micEnabled).toBe(false);
+    expect(audio.track.stopped).toBe(true);
+    manager.dispose();
+  });
+  it('still revokes capture on ordinary room changes, such as walking out of a house', async () => {
+    const audio = fakeStream('audio');
+    const manager = new MediaManager(() => {}, { getUserMedia: async () => audio.stream });
+    manager.attach(fakeEndpoint().endpoint);
+    manager.setContext(context());
+    await manager.toggleMicrophone();
+    manager.setContext({ ...context(), room: 'village', roomName: 'La aldea' });
+    expect(manager.view.micEnabled).toBe(false);
+    expect(audio.track.stopped).toBe(true);
+    manager.dispose();
   });
   it('reports unsupported/cancelled capture honestly and responds to source-ended', async () => {
     const unsupported = new MediaManager(() => {}, { getUserMedia: async () => fakeStream('audio').stream }); unsupported.setContext(context());

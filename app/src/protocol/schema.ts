@@ -81,6 +81,9 @@ export const payloadSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('board.sync.response'), boardId: fingerprintSchema, document: signedStrokeSchema.nullable(), next: integer.max(2000).nullable() }),
   z.strictObject({ type: z.literal('media.token'), token: nonce }),
   z.strictObject({ type: z.literal('media.received'), kind: z.enum(['audio', 'screen']) }),
+  // Who the sender wants a private call with, or null for public. A private
+  // call only opens when two players name each other.
+  z.strictObject({ type: z.literal('media.private'), with: fingerprintSchema.nullable() }),
 ]);
 export type Payload = z.infer<typeof payloadSchema>;
 export const eventSchema = z.strictObject({
@@ -95,9 +98,15 @@ export const wireSchema = z.discriminatedUnion('kind', [
   eventSchema,
 ]);
 export type WireMessage = z.infer<typeof wireSchema>;
+/**
+ * Where a media call belongs: the open village, one house, or a private pair.
+ * Receivers only accept calls tagged with the room they are in, so audio can
+ * never leak from a house into the village or out of a private conversation.
+ */
+export const roomSchema = z.string().regex(/^(village|house:[a-f0-9]{64}|pair:[a-f0-9]{64}:[a-f0-9]{64})$/);
 export const mediaMetadataSchema = z.strictObject({
-  v: z.literal(1), kind: z.enum(['audio', 'screen']), sessionId: idSchema,
-  epoch: integer.min(1), houseId: fingerprintSchema, identityId: fingerprintSchema, token: nonce,
+  v: z.literal(2), kind: z.enum(['audio', 'screen']), sessionId: idSchema,
+  epoch: integer.min(1), room: roomSchema, identityId: fingerprintSchema, token: nonce,
 });
 export type MediaMetadata = z.infer<typeof mediaMetadataSchema>;
 export function parseWire(raw: unknown): WireMessage {

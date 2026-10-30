@@ -202,6 +202,49 @@ describe('session integration using a FAKE in-memory transport, real WebCrypto (
     network.inject(guest.endpoint, host.endpoint, { v: 1, kind: 'event', sessionId: a.instance.view.sessionId, epoch: 1, sender: host.identity.fingerprint, seq: 9999, payload: { type: 'house.leave' } });
     await until(() => !a.instance.view.members[1].connected); expect(a.instance.view.members[0].connected).toBe(true);
   });
+  it('lets players talk in the open village and opens private calls only by mutual choice', async () => {
+    const network = new FakeNetwork(), clock = new ManualClock();
+    const host = await client(network, clock, 'Host'), a = await client(network, clock, 'A'), b = await client(network, clock, 'B');
+    await host.instance.openVillage(); await admit(host.instance, a.instance); await admit(host.instance, b.instance);
+    await until(() => network.channels.filter(channel => channel.open).length === 6, 'full mesh');
+    const audience = (who: typeof host) => who.instance.view.media.audience;
+    // Outside any house, everyone is in one public room: the village.
+    await until(() => audience(host).startsWith('La aldea · 2'), `village audience (${audience(host)})`);
+    await until(() => audience(a).startsWith('La aldea · 2'), 'village audience for A');
+
+    // A asks B. Until B agrees nothing changes for anyone's audio.
+    a.instance.requestPrivate(b.identity.public.fingerprint);
+    await until(() => b.instance.view.privateCall.incoming.includes(a.identity.public.fingerprint), 'B sees the request');
+    expect(a.instance.view.privateCall).toMatchObject({ with: b.identity.public.fingerprint, active: false });
+    expect(audience(a)).toMatch(/^La aldea · 2/);
+
+    // B accepts: A and B hear only each other, and the host no longer hears either.
+    b.instance.requestPrivate(a.identity.public.fingerprint);
+    await until(() => a.instance.view.privateCall.active && b.instance.view.privateCall.active, 'call is mutual');
+    await until(() => audience(a).startsWith('Privado con B · 1'), `A private audience (${audience(a)})`);
+    await until(() => audience(b).startsWith('Privado con A · 1'), 'B private audience');
+    await until(() => audience(host).startsWith('La aldea · 0'), `host loses both (${audience(host)})`);
+
+    // Either side hanging up returns everyone to the public village.
+    a.instance.requestPrivate(null);
+    await until(() => audience(a).startsWith('La aldea · 2') && audience(host).startsWith('La aldea · 2'), 'back to public');
+    expect(b.instance.view.privateCall.active).toBe(false);
+  });
+
+  it('keeps a house private from the village and refuses impossible private targets', async () => {
+    const network = new FakeNetwork(), clock = new ManualClock();
+    const host = await client(network, clock, 'Host'), a = await client(network, clock, 'A');
+    await host.instance.openVillage(); await admit(host.instance, a.instance);
+    await until(() => a.instance.view.media.audience.startsWith('La aldea · 1'), 'village');
+    a.instance.visitHouse(a.identity.public.fingerprint);
+    await until(() => a.instance.view.media.audience.startsWith('Casa: Casa A · 0'), `in own house (${a.instance.view.media.audience})`);
+    await until(() => host.instance.view.media.audience.startsWith('La aldea · 0'), 'village no longer includes A');
+    a.instance.requestPrivate(a.identity.public.fingerprint);
+    expect(a.instance.view.privateCall.with).toBeNull();
+    a.instance.requestPrivate('f'.repeat(64));
+    expect(a.instance.view.privateCall.with).toBeNull();
+  });
+
   it('synchronizes signed board strokes, deduplicates them, and preserves author tombstones', async () => {
     const network = new FakeNetwork(), clock = new ManualClock(); const a = await client(network, clock, 'A'), b = await client(network, clock, 'B');
     await a.instance.openVillage(); await admit(a.instance, b.instance);

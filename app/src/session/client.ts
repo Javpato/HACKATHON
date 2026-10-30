@@ -81,6 +81,9 @@ export class VillageClient implements VillageActions {
   private listeners = new Set<(view: NetworkView) => void>();
   private media: MediaManager;
   private board = new BoardStore();
+  /** Who I want a private call with, and who every other member wants one with. */
+  private privateWith: string | null = null;
+  private privateOf = new Map<string, string | null>();
   private boardRetries = new Map<string, SignedStroke>();
   private clock: Clock;
   private factory: TransportFactory;
@@ -116,6 +119,11 @@ export class VillageClient implements VillageActions {
       strokes: structuredClone(this.board.documents(room).map(document => document.stroke)),
       hostGraceRemainingMs: this.hostDeadline === null ? null : Math.max(0, this.hostDeadline - this.clock.now()),
       error: this.error, media: this.media.view,
+      privateCall: {
+        with: this.privateWith,
+        active: !!this.privateWith && this.partnerOf(this.id) === this.privateWith,
+        incoming: [...this.privateOf].filter(([from, to]) => to === this.id && this.members.get(from)?.connected && this.privateWith !== from).map(([from]) => from),
+      },
     };
   }
   private get id(): string { return this.identity.public.fingerprint; }
@@ -297,7 +305,7 @@ export class VillageClient implements VillageActions {
       const member = this.members.get(link.identity!.fingerprint)!;
       member.connected = true; member.houseId = null; this.memberDeadlines.delete(member.identity.fingerprint); this.rosterChanged();
     }
-    this.send(link, { type: 'media.token', token: link.receiveToken }); this.syncMedia();
+    this.announceMedia(link); this.syncMedia();
   }
   private send(link: Link, payload: Payload, coalesce?: string): boolean {
     if (!this.active(link) || !link.authenticated || !this.sessionId) return false;
@@ -324,7 +332,7 @@ export class VillageClient implements VillageActions {
     link.approved = true; link.requestId = undefined;
     this.members.set(link.identity.fingerprint, { identity: structuredClone(link.identity), endpoint: link.raw.endpoint, slot, connected: true, houseId: null, position: initialPosition() });
     this.send(link, { type: 'join.decision', accepted: true });
-    this.send(link, { type: 'media.token', token: link.receiveToken }); this.rosterChanged();
+    this.announceMedia(link); this.rosterChanged();
   }
   rotateInvite(): void {
     if (!this.isHost || this.phase !== 'JOINED' || !this.endpoint || !this.sessionId || !this.invite) return;
@@ -366,14 +374,20 @@ export class VillageClient implements VillageActions {
       this.rosterRevision = payload.revision; this.hostDeadline = null; this.error = null;
       const firstJoin = this.phase !== 'JOINED'; this.phase = 'JOINED';
       if (firstJoin) this.publishHouseDocument();
-      this.send(link, { type: 'media.token', token: link.receiveToken });
+      this.announceMedia(link);
       this.reconcileMesh(); this.syncMedia(); this.notify(); return;
     }
     if (payload.type === 'media.token') { link.sendToken = payload.token; this.syncMedia(); return; }
     if (payload.type === 'media.received') {
-      const room = this.members.get(this.id)?.houseId;
-      if (room && this.sameRoom(sender, room)) this.media.confirmReceiving(sender, payload.kind);
+      // The manager only confirms when it really has an outgoing call to this
+      // sender, so any authenticated member may report receipt, in any room.
+      if (this.members.has(sender)) this.media.confirmReceiving(sender, payload.kind);
       return;
+    }
+    if (payload.type === 'media.private') {
+      if (payload.with === sender) throw new Error('Self private call');
+      this.privateOf.set(sender, payload.with);
+      this.syncMedia(); this.notify(); return;
     }
     if (payload.type === 'session.closed') { if (!fromHost || this.isHost) throw new Error('Only coordinator closes'); this.finish('CLOSED', 'El anfitrión cerró el vecindario.'); return; }
     if (payload.type === 'session.kick') { if (!fromHost || this.isHost || payload.identityId !== this.id) throw new Error('Only coordinator kicks'); this.finish('KICKED', 'El anfitrión te retiró del vecindario.'); return; }
@@ -581,19 +595,69 @@ export class VillageClient implements VillageActions {
       this.connect(member.endpoint, 'mesh', member.identity);
     }
   }
+  /** Sends this link my media token and my current private-call intent. */
+  private announceMedia(link: Link): void {
+    this.send(link, { type: 'media.token', token: link.receiveToken });
+    this.send(link, { type: 'media.private', with: this.privateWith });
+  }
+
+  /** The partner of `id` in a private call, only when both chose each other. */
+  private partnerOf(id: string): string | null {
+    const wants = (who: string) => who === this.id ? this.privateWith : this.privateOf.get(who) ?? null;
+    const partner = wants(id);
+    if (!partner || partner === id) return null;
+    const partnerMember = this.members.get(partner);
+    if (!partnerMember?.connected || !this.members.get(id)?.connected) return null;
+    return wants(partner) === id ? partner : null;
+  }
+
+  requestPrivate(identityId: string | null): void {
+    if (this.phase !== 'JOINED') return;
+    if (identityId !== null && (identityId === this.id || !this.members.get(identityId)?.connected)) {
+      this.setError('Esa persona ya no está en la aldea.'); return;
+    }
+    if (this.privateWith === identityId) return;
+    this.privateWith = identityId;
+    for (const link of this.links) if (link.approved && link.authenticated && !link.closed) this.send(link, { type: 'media.private', with: identityId });
+    this.syncMedia(); this.notify();
+  }
+
   private syncMedia(): void {
     const self = this.members.get(this.id);
-    if (this.phase !== 'JOINED' || !self?.houseId || !self.connected || this.leaving) { this.media.setContext(null); return; }
-    const peers: MediaPeer[] = [];
-    for (const member of this.members.values()) {
-      if (member.identity.fingerprint === this.id || !member.connected || member.houseId !== self.houseId) continue;
-      const link = this.linkFor(member.identity.fingerprint);
-      if (!link?.sendToken) continue;
-      peers.push({ identityId: member.identity.fingerprint, endpoint: member.endpoint, sendToken: link.sendToken, receiveToken: link.receiveToken });
-      if (link.syncRoom !== self.houseId) { link.syncRoom = self.houseId; link.syncExpected = 0; this.send(link, { type: 'board.sync.request', boardId: self.houseId, cursor: 0 }); }
+    if (this.phase !== 'JOINED' || !self?.connected || this.leaving) { this.media.setContext(null); return; }
+
+    // Board sync follows the house you are standing in, independent of voice.
+    for (const link of this.links) {
+      const peer = link.identity ? this.members.get(link.identity.fingerprint) : undefined;
+      const together = !!self.houseId && !!peer?.connected && peer.houseId === self.houseId;
+      if (together && self.houseId && link.syncRoom !== self.houseId) {
+        link.syncRoom = self.houseId; link.syncExpected = 0;
+        this.send(link, { type: 'board.sync.request', boardId: self.houseId, cursor: 0 });
+      } else if (!together) { link.syncRoom = undefined; link.syncExpected = undefined; link.syncExport = undefined; }
     }
-    for (const link of this.links) if (!peers.some(peer => peer.identityId === link.identity?.fingerprint)) { link.syncRoom = undefined; link.syncExpected = undefined; link.syncExport = undefined; }
-    this.media.setContext({ sessionId: this.sessionId!, epoch: this.epoch, identityId: this.id, houseId: self.houseId, houseName: this.houses.get(self.houseId)?.house.name ?? 'Casa', peers });
+
+    // Voice: a mutual private call wins; otherwise you talk to everyone in the
+    // same place (the open village, or the same house) who is not in a call.
+    const partner = this.partnerOf(this.id);
+    let room: string; let roomName: string; let audience: string[];
+    if (partner) {
+      room = `pair:${[this.id, partner].sort().join(':')}`;
+      roomName = `Privado con ${this.members.get(partner)?.identity.displayName ?? 'alguien'}`;
+      audience = [partner];
+    } else {
+      room = self.houseId ? `house:${self.houseId}` : 'village';
+      roomName = self.houseId ? `Casa: ${this.houses.get(self.houseId)?.house.name ?? 'Casa'}` : 'La aldea';
+      audience = [...this.members.values()]
+        .filter(member => member.identity.fingerprint !== this.id && member.connected && member.houseId === self.houseId && !this.partnerOf(member.identity.fingerprint))
+        .map(member => member.identity.fingerprint);
+    }
+    const peers: MediaPeer[] = [];
+    for (const id of audience) {
+      const member = this.members.get(id); const link = this.linkFor(id);
+      if (!member || !link?.sendToken) continue;
+      peers.push({ identityId: id, endpoint: member.endpoint, sendToken: link.sendToken, receiveToken: link.receiveToken });
+    }
+    this.media.setContext({ sessionId: this.sessionId!, epoch: this.epoch, identityId: this.id, room, roomName, peers });
   }
   toggleMicrophone(): Promise<void> { return this.media.toggleMicrophone(); }
   setMuted(value: boolean): void { this.media.setMuted(value); }
@@ -627,7 +691,12 @@ export class VillageClient implements VillageActions {
     if (unexpected) { link.wire.close(); this.linkClosed(link); return; }
     link.closed = true; this.links.delete(link); for (const unsubscribe of link.unsubscribe) unsubscribe(); link.wire.close();
   }
+  private forgetPrivate(identityId: string): void {
+    this.privateOf.delete(identityId);
+    if (this.privateWith === identityId) this.privateWith = null;
+  }
   private removeLocalMember(identityId: string): void {
+    this.forgetPrivate(identityId);
     const link = this.linkFor(identityId); if (link) this.closeLink(link, false);
     this.houses.delete(identityId); this.memberDeadlines.delete(identityId);
     if (identityId !== this.id) this.board.removeBoard(identityId);
@@ -636,6 +705,7 @@ export class VillageClient implements VillageActions {
   private removeMember(identityId: string): void {
     if (!this.members.has(identityId) || identityId === this.id) return;
     this.members.delete(identityId); this.houses.delete(identityId); this.memberDeadlines.delete(identityId);
+    this.forgetPrivate(identityId);
     for (const member of this.members.values()) if (member.houseId === identityId) member.houseId = null;
     for (const [id, visit] of this.visits) if (visit.houseId === identityId || visit.visitorId === identityId) this.visits.delete(id);
     this.board.removeBoard(identityId); this.rosterChanged();
@@ -683,6 +753,7 @@ export class VillageClient implements VillageActions {
   private finish(phase: SessionPhase, error: string | null): void { this.reset(); this.phase = phase; this.error = error; this.notify(); }
   private reset(): void {
     this.generation++; this.leaving = true; this.media.suspend(); this.leaveResolve?.();
+    this.privateWith = null; this.privateOf.clear();
     if (this.tickTimer) this.clock.clearTimeout(this.tickTimer);
     if (this.moveTimer) this.clock.clearTimeout(this.moveTimer);
     this.tickTimer = undefined; this.moveTimer = undefined; this.pendingPosition = undefined;

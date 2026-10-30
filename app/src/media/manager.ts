@@ -7,7 +7,8 @@ export interface MediaDevicesAdapter {
   getDisplayMedia?: (constraints?: DisplayMediaStreamOptions) => Promise<MediaStream>;
 }
 export interface MediaPeer { identityId: string; endpoint: string; sendToken: string; receiveToken: string }
-export interface MediaContext { sessionId: string; epoch: number; identityId: string; houseId: string; houseName: string; peers: MediaPeer[] }
+/** `room` is 'village', 'house:<id>' or 'pair:<a>:<b>'; peers are everyone you exchange media with there. */
+export interface MediaContext { sessionId: string; epoch: number; identityId: string; room: string; roomName: string; peers: MediaPeer[] }
 interface ActiveCall { call: MediaCall; identityId: string; kind: 'audio' | 'screen'; stream?: MediaStream; unsubscribe: (() => void)[] }
 
 export class MediaManager {
@@ -33,14 +34,21 @@ export class MediaManager {
     return {
       micEnabled: !!this.microphone, muted: this.muted, deafened: this.deafened, pushToTalk: this.pushToTalk,
       talking: !!this.microphone && !this.muted && (!this.pushToTalk || this.talking), screenPhase: this.phase,
-      localScreen: this.screen, remote, audience: this.context ? `Casa: ${this.context.houseName} · ${this.context.peers.length} destinatario(s) autenticado(s)` : 'Nadie: fuera de una casa conectada', error: this.error,
+      localScreen: this.screen, remote, audience: this.context ? `${this.context.roomName} · ${this.context.peers.length} persona(s) pueden oírte` : 'Nadie: conéctate a una aldea para hablar', error: this.error,
     };
   }
   attach(endpoint: TransportEndpoint): void { this.endpoint = endpoint; }
   setContext(context: MediaContext | null): void {
     const previous = this.context;
-    const changedRoom = previous?.sessionId !== context?.sessionId || previous?.epoch !== context?.epoch || previous?.houseId !== context?.houseId;
-    if (changedRoom) this.stopAll();
+    const changedRoom = previous?.sessionId !== context?.sessionId || previous?.epoch !== context?.epoch || previous?.room !== context?.room;
+    // Moving rooms normally revokes capture, so your mic never follows you
+    // into an audience you did not choose. A private call is the exception:
+    // its audience is one person you picked who also accepted, so capture
+    // carries over. Leaving the call widens the audience and revokes it again.
+    const intoPrivate = changedRoom && !!previous && !!context && previous.sessionId === context.sessionId
+      && previous.epoch === context.epoch && context.room.startsWith('pair:');
+    if (intoPrivate) this.closeAllCalls();
+    else if (changedRoom) this.stopAll();
     this.context = context;
     for (const [key, item] of this.incoming) {
       if (!context?.peers.some(peer => peer.identityId === item.identityId && peer.endpoint === item.call.endpoint)) this.closeCall(this.incoming, key);
@@ -59,7 +67,7 @@ export class MediaManager {
     if (this.microphone || this.microphonePending) {
       this.consentGeneration++; this.microphonePending = false; this.stopMicrophone(); this.changed(); return;
     }
-    if (!this.context) { this.error = 'Entra en una casa conectada para activar el micrófono.'; this.changed(); return; }
+    if (!this.context) { this.error = 'Conéctate a una aldea para activar el micrófono.'; this.changed(); return; }
     const devices = this.currentDevices();
     if (!devices?.getUserMedia) { this.error = 'El micrófono no está disponible en este entorno.'; this.changed(); return; }
     const generation = this.consentGeneration;
@@ -76,7 +84,7 @@ export class MediaManager {
   }
   async startScreen(): Promise<void> {
     if (this.screen || this.phase === 'REQUESTING_OS_PERMISSION') return;
-    if (!this.context) { this.error = 'Entra en una casa conectada para compartir pantalla.'; this.changed(); return; }
+    if (!this.context) { this.error = 'Conéctate a una aldea para compartir pantalla.'; this.changed(); return; }
     const devices = this.currentDevices();
     if (!devices?.getDisplayMedia) { this.phase = 'NOT_SUPPORTED'; this.error = 'La captura de pantalla no está disponible en este entorno.'; this.changed(); return; }
     const consent = this.consentGeneration;
@@ -119,7 +127,7 @@ export class MediaManager {
     if (!parsed.success || !context) { call.close(); return; }
     const metadata = parsed.data;
     const peer = context.peers.find(peer => peer.endpoint === call.endpoint && peer.identityId === metadata.identityId);
-    if (!peer || metadata.token !== peer.receiveToken || metadata.sessionId !== context.sessionId || metadata.epoch !== context.epoch || metadata.houseId !== context.houseId) { call.close(); return; }
+    if (!peer || metadata.token !== peer.receiveToken || metadata.sessionId !== context.sessionId || metadata.epoch !== context.epoch || metadata.room !== context.room) { call.close(); return; }
     const key = `${metadata.identityId}/${metadata.kind}`;
     if (this.incoming.has(key) || this.incoming.size >= 10) { call.close(); return; }
     const item: ActiveCall = { call, identityId: metadata.identityId, kind: metadata.kind, unsubscribe: [] };
@@ -127,7 +135,7 @@ export class MediaManager {
     item.unsubscribe.push(call.onClose(() => { this.closeCall(this.incoming, key); this.changed(); }));
     item.unsubscribe.push(call.onStream(stream => {
       const current = this.context;
-      if (this.incoming.get(key) !== item || !current || current.houseId !== metadata.houseId || !current.peers.some(p => p.identityId === metadata.identityId && p.endpoint === call.endpoint && p.receiveToken === metadata.token)) { this.stopTracks(stream); this.closeCall(this.incoming, key); return; }
+      if (this.incoming.get(key) !== item || !current || current.room !== metadata.room || !current.peers.some(p => p.identityId === metadata.identityId && p.endpoint === call.endpoint && p.receiveToken === metadata.token)) { this.stopTracks(stream); this.closeCall(this.incoming, key); return; }
       item.stream = stream;
       for (const track of stream.getAudioTracks()) track.enabled = !this.deafened;
       for (const track of stream.getTracks()) track.addEventListener('ended', () => { if (this.incoming.get(key) === item) { this.closeCall(this.incoming, key); this.changed(); } }, { once: true });
@@ -146,7 +154,7 @@ export class MediaManager {
       for (const [kind, stream] of [['audio', this.microphone], ['screen', this.screen]] as const) {
         const key = `${peer.identityId}/${kind}`;
         if (!stream || this.outgoing.has(key) || this.outgoing.size >= 10) continue;
-        const metadata: MediaMetadata = { v: 1, kind, sessionId: context.sessionId, epoch: context.epoch, houseId: context.houseId, identityId: context.identityId, token: peer.sendToken };
+        const metadata: MediaMetadata = { v: 2, kind, sessionId: context.sessionId, epoch: context.epoch, room: context.room, identityId: context.identityId, token: peer.sendToken };
         try {
           const call = this.endpoint.call(peer.endpoint, stream, metadata);
           const item: ActiveCall = { call, identityId: peer.identityId, kind, unsubscribe: [] };
@@ -178,6 +186,12 @@ export class MediaManager {
     const stream = this.microphone; this.microphone = null; this.talking = false;
     for (const [key, item] of this.outgoing) if (item.kind === 'audio') this.closeCall(this.outgoing, key);
     if (stream) this.stopTracks(stream);
+  }
+  /** Drops every call but keeps local capture, so it can be re-offered to a new room. */
+  private closeAllCalls(): void {
+    for (const key of [...this.outgoing.keys()]) this.closeCall(this.outgoing, key);
+    for (const key of [...this.incoming.keys()]) this.closeCall(this.incoming, key);
+    if (this.screen) this.phase = 'CAPTURING_LOCAL';
   }
   private stopAll(): void {
     this.consentGeneration++; this.microphonePending = false;

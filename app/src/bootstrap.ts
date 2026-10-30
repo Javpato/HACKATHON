@@ -80,6 +80,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     setTalking: talking => client.setTalking(talking),
     startScreen: () => run(() => client.startScreen()),
     stopScreen: () => client.stopScreen(),
+    requestPrivate: (identityId) => client.requestPrivate(identityId),
     updateProfile: (displayName, color) => run(async () => {
       requireOffline();
       const name = displayName.trim().slice(0, 32);

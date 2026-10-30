@@ -239,6 +239,11 @@ class StudyUI {
   private aliasInput!: HTMLInputElement;
   private mediaBox!: HTMLElement;
   private mediaAudience!: HTMLElement;
+  private mediaEyebrow!: HTMLElement;
+  private privateBox!: HTMLElement;
+  private lastPrivateSignature = '';
+  /** Requests declined on this screen; the requester can still cancel on theirs. */
+  private dismissedPrivate = new Set<string>();
   private mediaStatus!: HTMLElement;
   private mediaError!: HTMLElement;
   private micButton!: HTMLButtonElement;
@@ -736,7 +741,9 @@ class StudyUI {
 
   private buildMedia(): void {
     this.mediaBox = node('section', 'sv-card sv-media-card');
-    append(this.mediaBox, node('div', 'sv-eyebrow', 'EN ESTA CASA'), node('h3', '', 'Audio y pantalla'));
+    this.mediaEyebrow = node('div', 'sv-eyebrow', 'EN LA ALDEA');
+    append(this.mediaBox, this.mediaEyebrow, node('h3', '', 'Voz y pantalla'));
+    this.privateBox = node('div', 'sv-private');
     this.mediaAudience = node('p', 'sv-subtle');
     this.mediaStatus = node('p', 'sv-tiny');
     this.mediaError = node('p', 'sv-error');
@@ -755,7 +762,7 @@ class StudyUI {
     this.stopScreenButton.addEventListener('click', () => this.actions.stopScreen());
     append(controls, this.micButton, this.muteButton, this.deafenButton, this.pttButton, this.screenButton, this.stopScreenButton);
     this.mediaTiles = node('div', 'sv-media-tiles');
-    append(this.mediaBox, this.mediaAudience, this.mediaStatus, this.mediaError, controls, this.mediaTiles,
+    append(this.mediaBox, this.mediaAudience, this.mediaStatus, this.mediaError, controls, this.privateBox, this.mediaTiles,
       node('p', 'sv-tiny', 'La captura puede mostrar notificaciones y contraseñas. Elige una ventana cuando el sistema lo permita.'),
       node('p', 'sv-tiny', 'Con pulsar para hablar activo, mantén la barra espaciadora.'));
   }
@@ -1024,13 +1031,70 @@ class StudyUI {
     }
   }
 
+  /** Private calls: start one, answer one, or hang up. */
+  private refreshPrivate(view: AppView, connected: boolean): void {
+    const call = view.network.privateCall;
+    const me = view.identity.fingerprint;
+    const others = view.network.members.filter((member) => member.connected && member.identity.fingerprint !== me);
+    const incoming = call.incoming.filter((id) => !this.dismissedPrivate.has(id));
+    for (const id of this.dismissedPrivate) if (!call.incoming.includes(id)) this.dismissedPrivate.delete(id);
+    const signature = JSON.stringify([connected, call, incoming, others.map((member) => [member.identity.fingerprint, member.identity.displayName])]);
+    if (signature === this.lastPrivateSignature) return;
+    this.lastPrivateSignature = signature;
+    this.privateBox.replaceChildren();
+    show(this.privateBox, connected && (others.length > 0 || !!call.with));
+    if (!connected) return;
+    const nameOf = (id: string) => view.network.members.find((member) => member.identity.fingerprint === id)?.identity.displayName || 'alguien';
+
+    for (const id of incoming) {
+      const row = node('div', 'sv-private-request');
+      const accept = button('Aceptar', 'sv-button sv-button-small sv-button-primary');
+      accept.addEventListener('click', () => this.actions.requestPrivate(id));
+      const decline = button('Rechazar', 'sv-button sv-button-small');
+      decline.addEventListener('click', () => { this.dismissedPrivate.add(id); this.lastPrivateSignature = ''; this.refreshMedia(); });
+      const actions = node('div', 'sv-inline');
+      append(actions, accept, decline);
+      append(row, node('strong', '', `${nameOf(id)} quiere hablar en privado`), actions);
+      this.privateBox.append(row);
+    }
+
+    if (call.with) {
+      const row = node('div', `sv-private-status${call.active ? ' is-live' : ''}`);
+      const hang = button(call.active ? 'Colgar' : 'Cancelar', 'sv-button sv-button-small');
+      hang.addEventListener('click', () => this.actions.requestPrivate(null));
+      append(row, node('span', 'sv-private-dot'),
+        node('span', '', call.active ? `En privado con ${nameOf(call.with)}` : `Esperando a ${nameOf(call.with)}…`), hang);
+      this.privateBox.append(row);
+      return;
+    }
+
+    if (!others.length) return;
+    this.privateBox.append(node('div', 'sv-field-label', 'Hablar en privado con'));
+    const list = node('div', 'sv-private-list');
+    for (const member of others) {
+      const pick = button(member.identity.displayName, 'sv-button sv-button-small sv-private-pick');
+      const dot = node('span', 'sv-person-dot');
+      dot.style.backgroundColor = member.identity.color;
+      pick.prepend(dot);
+      pick.title = 'Solo esa persona te oirá, y solo si acepta';
+      pick.addEventListener('click', () => this.actions.requestPrivate(member.identity.fingerprint));
+      list.append(pick);
+    }
+    this.privateBox.append(list);
+  }
+
   private refreshMedia(): void {
     const view = this.view!;
     const media = view.network.media;
     const ownMember = view.network.members.find((member) => member.identity.fingerprint === view.identity.fingerprint);
-    const showingCurrentRoom = !!this.houseOwnerId && ownMember?.houseId === this.houseOwnerId;
-    const connected = view.network.phase === 'JOINED' && !view.lockedIdentity && showingCurrentRoom;
-    setText(this.mediaAudience, showingCurrentRoom ? (media.audience || 'Nadie recibe tu audio o pantalla ahora.') : 'Nadie recibe tu audio o pantalla ahora.');
+    // Voice now works wherever you are: the open village, a house, or a
+    // private call. The manager already scopes who can hear you.
+    const showingCurrentRoom = view.network.phase === 'JOINED';
+    const connected = view.network.phase === 'JOINED' && !view.lockedIdentity;
+    const call = view.network.privateCall;
+    setText(this.mediaEyebrow, call.active ? 'LLAMADA PRIVADA' : ownMember?.houseId ? 'EN ESTA CASA' : 'EN LA ALDEA');
+    setText(this.mediaAudience, connected ? (media.audience || 'Nadie recibe tu audio o pantalla ahora.') : 'Conéctate a una aldea para hablar con otras personas.');
+    this.refreshPrivate(view, connected);
     setText(this.mediaStatus, SCREEN_LABEL[media.screenPhase]);
     setText(this.mediaError, media.error || '');
     show(this.mediaError, !!media.error);

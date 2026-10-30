@@ -35,6 +35,8 @@ export interface NetworkView {
   phase: SessionPhase; isHost: boolean; sessionId: string | null; invite: string | null;
   members: Member[]; houses: PublicHouse[]; pendingJoins: JoinRequest[]; pendingVisits: VisitRequest[];
   strokes: BoardStroke[]; hostGraceRemainingMs: number | null; error: string | null; media: MediaView;
+  /** Private voice: who you asked, whether they asked you back, and who is asking you. */
+  privateCall: { with: IdentityId | null; active: boolean; incoming: IdentityId[] };
 }
 export interface VillageActions {
   openVillage(): Promise<void>; joinVillage(invite: string): Promise<void>;
@@ -47,6 +49,8 @@ export interface VillageActions {
   toggleMicrophone(): Promise<void>; setMuted(muted: boolean): void;
   setDeafened(deafened: boolean): void; setPushToTalk(enabled: boolean): void; setTalking(talking: boolean): void;
   startScreen(): Promise<void>; stopScreen(): void;
+  /** Ask for (or accept) a private call with one person; null returns to public voice. */
+  requestPrivate(identityId: IdentityId | null): void;
 }
 export interface DiagnosticEntry { test: string; status: 'PASS' | 'FAIL' | 'UNVERIFIED' | 'UNSUPPORTED'; detail: string }
 export interface AppView {
