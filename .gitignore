@@ -1,0 +1,15 @@
+node_modules/
+dist/
+target/
+.worktrees/
+.local/
+test-results/
+playwright-report/
+*.log
+*.db
+*.db-*
+.env
+.env.*
+!.env.example
+app/src-tauri/gen/
+

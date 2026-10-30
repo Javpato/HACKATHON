@@ -1,0 +1,64 @@
+/** Frozen cross-module API. Only the integrator changes this file. */
+export const LIMITS = {
+  members: 6, hostGraceMs: 60_000, leaveAckMs: 1_500,
+  messageBytes: 65_536, queueMessages: 128, queueBytes: 1_048_576,
+  strokePoints: 512, boardOperations: 2_000, furniture: 32,
+  worldWidth: 768, worldHeight: 432,
+} as const;
+
+export type IdentityId = string;
+export interface PublicIdentity { fingerprint: IdentityId; publicKey: string; displayName: string; color: string }
+export interface LocalIdentity { public: PublicIdentity; privateKey: CryptoKey }
+export interface EncryptedIdentity {
+  v: 1; kdf: 'PBKDF2-SHA256'; iterations: number; salt: string; iv: string;
+  ciphertext: string; publicIdentity: PublicIdentity;
+}
+export interface Contact { schemaVersion: 1; identity: PublicIdentity; friendCode: string }
+export type HouseAccess = 'open' | 'ask' | 'locked';
+export type FurnitureKind = 'desk' | 'bookshelf' | 'board' | 'plant' | 'table' | 'frame' | 'cabinet';
+export interface Furniture { id: string; kind: FurnitureKind; x: number; y: number; publicAlias: string }
+export interface PublicHouse { ownerId: IdentityId; revision: number; name: string; access: HouseAccess; theme: 'mint' | 'peach'; furniture: Furniture[] }
+export interface Position { x: number; y: number; direction: 'up' | 'down' | 'left' | 'right'; moving: boolean }
+export interface Member { identity: PublicIdentity; endpoint: string; slot: number; connected: boolean; houseId: IdentityId | null; position: Position }
+export interface JoinRequest { requestId: string; identity: PublicIdentity }
+export interface VisitRequest { requestId: string; identity: PublicIdentity; houseId: IdentityId }
+export type SessionPhase = 'IDLE' | 'SIGNALING' | 'CONNECTING' | 'AUTHENTICATING' | 'PENDING_APPROVAL' | 'JOINED' | 'RECONNECTING' | 'DENIED' | 'EXPIRED_INVITE' | 'NETWORK_FAILED' | 'KICKED' | 'CLOSED';
+export interface BoardPoint { x: number; y: number }
+export interface BoardStroke { id: string; author: IdentityId; boardId: IdentityId; seq: number; color: string; width: number; tool: 'pen' | 'line' | 'rectangle'; points: BoardPoint[]; deleted: boolean }
+export type ScreenPhase = 'OFF' | 'REQUESTING_OS_PERMISSION' | 'CAPTURING_LOCAL' | 'NEGOTIATING' | 'SENDING' | 'DENIED' | 'NOT_SUPPORTED' | 'SOURCE_ENDED' | 'NETWORK_FAILED';
+export interface RemoteMedia { identityId: IdentityId; kind: 'audio' | 'screen'; stream: MediaStream }
+export interface MediaView { micEnabled: boolean; muted: boolean; deafened: boolean; pushToTalk: boolean; talking: boolean; screenPhase: ScreenPhase; localScreen: MediaStream | null; remote: RemoteMedia[]; audience: string; error: string | null }
+export interface NetworkView {
+  phase: SessionPhase; isHost: boolean; sessionId: string | null; invite: string | null;
+  members: Member[]; houses: PublicHouse[]; pendingJoins: JoinRequest[]; pendingVisits: VisitRequest[];
+  strokes: BoardStroke[]; hostGraceRemainingMs: number | null; error: string | null; media: MediaView;
+}
+export interface VillageActions {
+  openVillage(): Promise<void>; joinVillage(invite: string): Promise<void>;
+  decideJoin(requestId: string, accept: boolean): void; rotateInvite(): void;
+  leave(): Promise<void>; visitHouse(ownerId: IdentityId): void;
+  decideVisit(requestId: string, accept: boolean): void; leaveHouse(): void;
+  publishHouse(house: PublicHouse): void; move(position: Position): void;
+  sendStroke(stroke: BoardStroke): void; deleteStroke(strokeId: string): void;
+  kickMember(identityId: IdentityId): void; kickVisitor(identityId: IdentityId): void;
+  toggleMicrophone(): Promise<void>; setMuted(muted: boolean): void;
+  setDeafened(deafened: boolean): void; setPushToTalk(enabled: boolean): void; setTalking(talking: boolean): void;
+  startScreen(): Promise<void>; stopScreen(): void;
+}
+export interface DiagnosticEntry { test: string; status: 'PASS' | 'FAIL' | 'UNVERIFIED' | 'UNSUPPORTED'; detail: string }
+export interface AppView {
+  identity: PublicIdentity; network: NetworkView; ownHouse: PublicHouse;
+  contacts: Contact[]; friendCode: string; storage: 'sqlite' | 'indexeddb' | 'memory';
+  identitySaved: boolean; lockedIdentity: boolean; notice: string | null;
+  diagnostics: DiagnosticEntry[]; editorText: string;
+}
+export interface AppActions extends VillageActions {
+  updateProfile(displayName: string, color: string): Promise<void>;
+  updateOwnHouse(house: PublicHouse): void; copyInvite(): Promise<void>;
+  saveIdentity(passphrase: string): Promise<void>; unlockIdentity(passphrase: string): Promise<void>;
+  exportContact(): void; importContact(file: File): Promise<void>; rotateFriendCode(): void;
+  openLocalFile(furnitureId: string): Promise<void>; saveEditor(text: string): Promise<void>;
+  exportEditor(text: string): void; exportBoard(canvas: HTMLCanvasElement): void;
+  runDiagnostic(kind: 'capabilities' | 'microphone' | 'screen' | 'stop' | 'loopback'): Promise<void>;
+  dismissNotice(): void;
+}
