@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 // Two real clients on one machine, joined through the real PeerJS cloud
@@ -7,9 +8,9 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
 // or networks, where NAT can still block direct WebRTC.
 test.skip(!process.env.STUDYVILLAGE_LIVE, 'needs internet; set STUDYVILLAGE_LIVE=1');
 test.use({
-  permissions: ['microphone'],
+  permissions: ['microphone', 'camera'],
   launchOptions: {
-    executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome',
+    executablePath: process.env.CHROME_PATH || (existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined),
     args: ['--no-sandbox', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
   },
 });
@@ -194,5 +195,32 @@ test('the village host can stop Werewolves without taking a seat', async ({ brow
     await reach(guest);await guest.getByRole('button',{name:'Sentarme a la mesa'}).click();for(let i=0;i<3;i++)await guest.getByRole('button',{name:'Añadir bot',exact:true}).click();await guest.getByRole('button',{name:'Repartir cartas'}).click();
     await reach(host);await expect(host.getByRole('region',{name:'Hombres lobo'})).toBeVisible();await expect(host.locator('.ww-seat.is-me')).toHaveCount(0);
     await host.getByRole('button',{name:'Terminar partida',exact:true}).click();await host.getByRole('button',{name:'¿Terminar para todos?',exact:true}).click();await expect(guest.getByRole('heading',{name:'La mesa de la hoguera'})).toBeVisible({timeout:15000});
+  } finally {await Promise.all(contexts.map(c=>c.close()));}
+});
+
+
+test('game cameras share video only inside the same open game and stop when it closes', async ({browser})=>{
+  test.setTimeout(120_000);const contexts:BrowserContext[]=[];
+  try {
+    const [host,guest]=await village(browser,['Cámara anfitrión','Cámara invitado'],contexts);
+    const reach=async(page:Page,game:'werewolves'|'gartic')=>{
+      const canvas=page.locator('.sv-stage-pane canvas');let box=(await canvas.boundingBox())!;
+      await canvas.click({position:{x:box.width-15,y:box.height/2}});await expect(page.locator('.sv-hud-place h1')).toHaveText('Plaza Comunitaria',{timeout:15000});
+      box=(await canvas.boundingBox())!;await canvas.click({position:{x:box.width*(game==='werewolves'?384:169)/768,y:box.height*(game==='werewolves'?210:110)/432}});
+      await expect(page.locator(game==='werewolves'?'.ww':'.gp')).toBeVisible({timeout:15000});
+    };
+    await reach(host,'werewolves');await reach(guest,'gartic');
+    await host.getByRole('button',{name:'Activar cámara',exact:true}).click();await guest.getByRole('button',{name:'Activar cámara',exact:true}).click();
+    await expect(host.locator('.sv-game-camera-tile')).toHaveCount(1);await expect(guest.locator('.sv-game-camera-tile')).toHaveCount(1);
+    await guest.getByTestId('expansion-modal-close').click();
+    const canvas=guest.locator('.sv-stage-pane canvas');const box=(await canvas.boundingBox())!;await canvas.click({position:{x:box.width*384/768,y:box.height*210/432}});
+    await expect(guest.locator('.ww')).toBeVisible({timeout:15000});
+    await expect(guest.getByLabel('Cámara de Cámara anfitrión',{exact:true})).toBeVisible({timeout:25000});
+    await expect.poll(()=>guest.getByLabel('Cámara de Cámara anfitrión',{exact:true}).evaluate(v=>(v as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
+    await guest.getByRole('button',{name:'Activar cámara',exact:true}).click();await expect(host.locator('.sv-game-camera-tile')).toHaveCount(2,{timeout:25000});
+    await expect.poll(()=>host.getByLabel('Cámara de Cámara invitado',{exact:true}).evaluate(v=>(v as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
+    await host.screenshot({path:'/tmp/camera-two-clients.png',animations:'disabled'});
+    await guest.getByTestId('expansion-modal-close').click();await expect(host.locator('.sv-game-camera-tile')).toHaveCount(1,{timeout:15000});
+    await host.getByTestId('expansion-modal-close').click();await expect(host.locator('.sv-game-camera')).toHaveCount(0);
   } finally {await Promise.all(contexts.map(c=>c.close()));}
 });

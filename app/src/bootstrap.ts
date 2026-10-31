@@ -86,6 +86,8 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     setTalking: talking => client.setTalking(talking),
     startScreen: () => run(() => client.startScreen()),
     stopScreen: () => client.stopScreen(),
+    setCameraActivity: activity => client.setCameraActivity(activity),
+    toggleGameCamera: () => run(() => client.toggleGameCamera()),
     requestPrivate: (identityId) => client.requestPrivate(identityId),
     sendApp: (channel, to, data) => client.sendApp(channel, to, data),
     onApp: listener => { appListeners.add(listener); return () => { appListeners.delete(listener); }; },

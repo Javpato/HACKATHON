@@ -1,3 +1,6 @@
+import { GameCameraManager, type CameraPeer } from '../media/game-camera';
+import { cameraMetadataSchema, cameraPresenceSchema } from '../protocol/schema';
+import type { CameraActivity } from '../protocol/types';
 import { AREA_NAMES, areaOf, isInScene } from '../world/location';
 import { canonical, randomId, sign, validatePublicIdentity, verify } from '../identity';
 import { MediaManager, type MediaDevicesAdapter, type MediaPeer } from '../media/manager';
@@ -82,6 +85,9 @@ export class VillageClient implements VillageActions {
   private listeners = new Set<(view: NetworkView) => void>();
   private appListeners = new Set<(message: AppMessage) => void>();
   private media: MediaManager;
+  private camera: GameCameraManager;
+  private cameraActivity: CameraActivity | null = null;
+  private cameraActivities = new Map<string, CameraActivity | null>();
   private board = new BoardStore();
   /** Who I want a private call with, and who every other member wants one with. */
   private privateWith: string | null = null;
@@ -103,6 +109,7 @@ export class VillageClient implements VillageActions {
   private runningJob = false;
 
   constructor(private identity: LocalIdentity, ownHouse: PublicHouse, options: VillageClientOptions = {}) {
+    this.camera = new GameCameraManager(() => this.notify(), options.mediaDevices);
     this.ownHouse = houseSchema.parse(ownHouse);
     if (ownHouse.ownerId !== identity.public.fingerprint) throw new Error('La casa debe pertenecer a la identidad local.');
     this.clock = options.clock ?? systemClock;
@@ -120,7 +127,7 @@ export class VillageClient implements VillageActions {
       pendingVisits: [...this.visits.values()].filter(request => request.houseId === this.id).map(({ requestId, identity, houseId }) => ({ requestId, identity: structuredClone(identity), houseId })),
       strokes: structuredClone(this.board.documents(room).map(document => document.stroke)),
       hostGraceRemainingMs: this.hostDeadline === null ? null : Math.max(0, this.hostDeadline - this.clock.now()),
-      error: this.error, media: this.media.view,
+      error: this.error, media: this.media.view, gameCamera: this.camera.view,
       privateCall: {
         with: this.privateWith,
         active: !!this.privateWith && this.partnerOf(this.id) === this.privateWith,
@@ -132,6 +139,17 @@ export class VillageClient implements VillageActions {
   subscribe(listener: (view: NetworkView) => void): () => void { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
   onApp(listener: (message: AppMessage) => void): () => void { this.appListeners.add(listener); return () => this.appListeners.delete(listener); }
   private deliverApp(message: AppMessage): void {
+    if (message.channel === 'camera') {
+      try {
+        const presence = cameraPresenceSchema.parse(JSON.parse(message.data));
+        if (!this.members.get(message.from)?.connected) return;
+        this.cameraActivities.set(message.from, presence.game);
+        this.syncCamera();
+        if (presence.request) this.sendApp('camera', message.from, JSON.stringify({ game: this.cameraActivity, request: false }));
+        this.notify();
+      } catch { /* Invalid camera presence cannot affect other activities. */ }
+      return;
+    }
     for (const listener of this.appListeners) { try { listener(message); } catch { /* An activity must not disrupt the protocol. */ } }
   }
   /** Shared activities. The host routes; everyone else only ever talks to the host. */
@@ -214,8 +232,8 @@ export class VillageClient implements VillageActions {
     }
   }
   private attachEndpoint(endpoint: TransportEndpoint): void {
-    this.endpoint = endpoint; this.media.attach(endpoint);
-    this.endpointUnsubscribe.push(endpoint.onConnection(raw => this.attach(raw, false)), endpoint.onCall(call => this.media.receive(call)), endpoint.onSignalingChange(connected => {
+    this.endpoint = endpoint; this.media.attach(endpoint); this.camera.attach(endpoint);
+    this.endpointUnsubscribe.push(endpoint.onConnection(raw => this.attach(raw, false)), endpoint.onCall(call => { if (cameraMetadataSchema.safeParse(call.metadata).success) this.camera.receive(call); else this.media.receive(call); }), endpoint.onSignalingChange(connected => {
       if (!connected && this.phase === 'JOINED') this.setError('Se perdió la señalización; las conexiones P2P existentes siguen activas.');
     }));
   }
@@ -503,7 +521,7 @@ export class VillageClient implements VillageActions {
   }
   visitHouse(ownerId: string): void {
     if (this.phase !== 'JOINED') { this.setError('Abre o únete a un vecindario para visitar una casa.'); return; }
-    this.media.suspend();
+    this.media.suspend(); this.camera.suspend();
     const requestId = randomId();
     if (this.isHost) this.requestVisit(this.id, ownerId, requestId); else this.sendHost({ type: 'house.visit', requestId, ownerId });
   }
@@ -537,7 +555,7 @@ export class VillageClient implements VillageActions {
     this.notify();
   }
   leaveHouse(): void {
-    this.media.suspend();
+    this.media.suspend(); this.camera.suspend();
     if (this.phase !== 'JOINED') return;
     if (this.isHost) { this.cancelVisits(this.id); const member = this.members.get(this.id); if (member) member.houseId = null; this.rosterChanged(); }
     else this.sendHost({ type: 'house.leave' });
@@ -661,6 +679,7 @@ export class VillageClient implements VillageActions {
   }
 
   private syncMedia(): void {
+    this.syncCamera();
     const self = this.members.get(this.id);
     if (this.phase !== 'JOINED' || !self?.connected || this.leaving) { this.media.setContext(null); return; }
 
@@ -697,6 +716,30 @@ export class VillageClient implements VillageActions {
     }
     this.media.setContext({ sessionId: this.sessionId!, epoch: this.epoch, identityId: this.id, room, roomName, peers });
   }
+  setCameraActivity(activity: CameraActivity | null): void {
+    if (activity === this.cameraActivity) return;
+    this.cameraActivity = activity;
+    this.syncCamera();
+    this.sendApp('camera', null, JSON.stringify({ game: activity, request: true }));
+    this.notify();
+  }
+  toggleGameCamera(): Promise<void> { return this.camera.toggle(); }
+  private syncCamera(): void {
+    const game = this.cameraActivity;
+    if (!game || this.leaving || this.disposed) { this.camera.setContext(null); return; }
+    const self = this.members.get(this.id);
+    const online = this.phase === 'JOINED' && !!self?.connected;
+    const scene = self?.houseId ? `house:${self.houseId}` : self && areaOf(self.position) !== 'residential' ? `area:${areaOf(self.position)}` : 'village';
+    const peers: CameraPeer[] = [];
+    if (online) for (const member of this.members.values()) {
+      const id = member.identity.fingerprint; const link = this.linkFor(id);
+      if (id === this.id || !link?.sendToken || !isInScene(member, areaOf(self!.position), self!.houseId)) continue;
+      peers.push({ identityId: id, endpoint: member.endpoint, receiveToken: link.receiveToken, sendToken: link.sendToken, watching: this.cameraActivities.get(id) === game });
+    }
+    for (const id of this.cameraActivities.keys()) if (!this.members.get(id)?.connected) this.cameraActivities.delete(id);
+    this.camera.setContext({ sessionId: online ? this.sessionId! : 'local', epoch: online ? this.epoch : 1,
+      identityId: this.id, room: `${scene}:game:${game}`, roomName: game, peers });
+  }
   toggleMicrophone(): Promise<void> { return this.media.toggleMicrophone(); }
   setMuted(value: boolean): void { this.media.setMuted(value); }
   setDeafened(value: boolean): void { this.media.setDeafened(value); }
@@ -718,7 +761,7 @@ export class VillageClient implements VillageActions {
         this.rosterChanged();
       } else if (id === this.hostId) {
         this.hostDeadline ??= this.clock.now() + LIMITS.hostGraceMs;
-        this.phase = 'RECONNECTING'; this.media.suspend();
+        this.phase = 'RECONNECTING'; this.media.suspend(); this.camera.suspend();
         this.error = 'Se perdió el anfitrión. Se conserva la sesión durante 60 segundos y se exige autenticación al volver.';
       }
     } else if (!this.isHost && link.initiator && link.intent === 'join' && this.phase !== 'DENIED') this.finish('NETWORK_FAILED', 'La conexión no se autenticó o la invitación fue revocada.');
@@ -773,7 +816,7 @@ export class VillageClient implements VillageActions {
   }
   async leave(): Promise<void> {
     if (this.leaving) return;
-    this.leaving = true; this.media.suspend();
+    this.leaving = true; this.media.suspend(); this.camera.suspend();
     if (this.isHost && this.phase === 'JOINED') {
       this.broadcast({ type: 'session.closed' });
       await new Promise<void>(resolve => this.clock.setTimeout(resolve, 100));
@@ -790,8 +833,8 @@ export class VillageClient implements VillageActions {
   }
   private finish(phase: SessionPhase, error: string | null): void { this.reset(); this.phase = phase; this.error = error; this.notify(); }
   private reset(): void {
-    this.generation++; this.leaving = true; this.media.suspend(); this.leaveResolve?.();
-    this.privateWith = null; this.privateOf.clear();
+    this.generation++; this.leaving = true; this.media.suspend(); this.camera.suspend(); this.leaveResolve?.();
+    this.privateWith = null; this.privateOf.clear(); this.cameraActivity = null; this.cameraActivities.clear();
     if (this.tickTimer) this.clock.clearTimeout(this.tickTimer);
     if (this.moveTimer) this.clock.clearTimeout(this.moveTimer);
     this.tickTimer = undefined; this.moveTimer = undefined; this.pendingPosition = undefined;
@@ -804,5 +847,5 @@ export class VillageClient implements VillageActions {
     this.rosterRevision = 0; this.hostDeadline = null; this.error = null; this.leaveRequest = undefined; this.leaveResolve = undefined;
     this.leaving = false;
   }
-  dispose(): void { if (this.disposed) return; this.reset(); this.media.dispose(); this.disposed = true; this.listeners.clear(); }
+  dispose(): void { if (this.disposed) return; this.reset(); this.media.dispose(); this.camera.dispose(); this.disposed = true; this.listeners.clear(); }
 }

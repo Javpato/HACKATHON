@@ -79,3 +79,33 @@
 
 .pj-list { background: var(--paper); border-color: var(--paper-line); }
 .sv-role-card input, .sv-role-setup select, .sv-role-setup input[type=text] { border: 1px solid var(--paper-line); border-radius: 6px; background: var(--paper); color: var(--text-warm); }
+
+/* Game cameras: clear video, rounded glass-like cards, with space reserved for the game. */
+.sv-activity.has-game-camera { padding-bottom: 60px; background: var(--wood-dark); }
+.sv-activity.is-camera-live { display: grid; grid-template-columns: minmax(0,1fr) 192px; grid-template-rows: minmax(0,1fr); }
+.sv-activity.is-camera-live > .ww, .sv-activity.is-camera-live > .gp { grid-column: 1; grid-row: 1; min-width: 0; height: 100%; }
+.sv-game-camera { position: absolute; left: 16px; bottom: 9px; z-index: 11; color: var(--text-warm); }
+.sv-game-camera-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 9px 14px; border: 1px solid #e1d2b6; border-radius: 13px; background: #fffaf0; color: #4a4034; font: inherit; font-weight: 650; cursor: pointer; box-shadow: 0 2px 5px #00000012; }
+.sv-game-camera-toggle.is-on { background: #416c46; color: #fffaf0; border-color: #416c46; }
+.sv-game-camera-toggle:focus-visible { outline: 3px solid #b89d65; outline-offset: 3px; }
+.sv-game-camera-gallery { display: flex; flex-direction: column; gap: 12px; }
+.sv-game-camera.is-live { position: relative; inset: auto; grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 14px; overflow: auto; background: #efe6d6; border-left: 1px solid #c8b598; }
+.sv-game-camera-tile { position: relative; flex: 0 0 auto; width: 100%; aspect-ratio: 1; border-radius: 22px; overflow: hidden; isolation: isolate; background: #262723; border: 1px solid #ffffffb3; box-shadow: 0 3px 7px #30251b1c, 0 12px 26px #30251b12; }
+.sv-game-camera-tile video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sv-game-camera-tile video.is-self { transform: scaleX(-1); }
+.sv-game-camera-caption { position: absolute; inset: auto 0 0; display: flex; align-items: center; gap: 6px; padding: 24px 10px 11px; color: #fff; background: linear-gradient(transparent,#0009); font-size: 12px; font-weight: 600; text-shadow: 0 1px 3px #0005; }
+.sv-game-camera-caption > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.sv-game-camera-live { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #a6e5a6; box-shadow: 0 0 0 3px #85d99526; }
+.sv-game-camera-quality { font-size: 9px; white-space: nowrap; opacity: .85; }
+.sv-game-camera-error { max-width: 260px; padding: 10px; background: #fff8e9; border: 1px solid #d7bf95; border-radius: 10px; font-size: 12px; color: #8a3b26; }
+.sv-game-camera:not(.is-live) .sv-game-camera-error { position: absolute; bottom: 42px; left: 0; width: min(260px,80vw); }
+@media(max-width:740px) {
+  .sv-activity.is-camera-live { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr) 132px; }
+  .sv-game-camera.is-live { grid-column: 1; grid-row: 2; flex-direction: row; align-items: center; padding: 10px 12px; border-left: 0; border-top: 1px solid #c8b598; overflow: auto; }
+  .sv-game-camera-controls { flex: 0 0 auto; }
+  .sv-game-camera-gallery { flex-direction: row; flex: 0 0 auto; gap: 10px; }
+  .sv-game-camera-tile { width: 108px; border-radius: 19px; }
+  .sv-game-camera-caption { padding: 22px 8px 9px; font-size: 11px; }
+  .sv-game-camera-quality { display: none; }
+  .sv-game-camera.is-live .sv-game-camera-error { flex: 0 0 180px; }
+}

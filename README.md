@@ -33,6 +33,10 @@ Para el primer gate de medios, abre `http://127.0.0.1:3000/?diagnostic=1`. Permi
 
 La identidad es temporal en RAM por defecto. Para reconocer el mismo contacto tras reiniciar, guárdala **cifrada con una contraseña** y desbloquéala en la siguiente apertura. No hay recuperación de contraseña ni integración de keyring del SO en esta entrega. La casa y los apuntes pueden persistir aunque uses una identidad temporal.
 
+## Novedades de 0.2.1
+
+Cámara opcional en Hombres Lobo y Gartic: tarjetas cuadradas redondeadas, vista propia en espejo y captura ideal Full HD a 30 fps. El vídeo solo se ofrece a quienes abren el mismo juego en la misma escena; se apaga al cerrar/cambiar de juego o salir de la sesión. Micrófono independiente.
+
 ## Novedades de 0.2.0
 
 Tema de madera y papel en apuntes, pizarra y proyectos. Shift para correr; decoración explícita con catálogo, giro, cuadrícula y deshacer. Hombres Lobo incluye cartas configurables y sets guardados. El anfitrión puede terminar cualquier partida. Tarjetas ofrece creación manual, repaso y concursos compartidos; la IA queda en opciones avanzadas. Las bibliotecas nuevas empiezan vacías.
@@ -78,7 +82,7 @@ npm run desktop:build -- --config src-tauri/tauri.windows.conf.json
 
 Se configura un instalador NSIS `.exe`. [.github/workflows/desktop.yml](.github/workflows/desktop.yml) compila Linux y Windows en runners de cada plataforma y conserva artifacts; no publica releases.
 
-La versión actual es **0.2.0**. El workflow genera `StudyVillage_0.2.0_x64-setup.exe` (NSIS) en Windows y `.deb` + `.AppImage` en Linux. Descargar el instalador sin clonar nada:
+La versión actual es **0.2.1**. El workflow genera `StudyVillage_0.2.1_x64-setup.exe` (NSIS) en Windows y `.deb` + `.AppImage` en Linux. Descargar el instalador sin clonar nada:
 
 ```bash
 gh run list --workflow "Desktop build only (no publication)"

@@ -12,7 +12,12 @@ export const LIMITS = {
   appData: 56_000,
 } as const;
 
-export type AppChannel = 'werewolves' | 'gartic' | 'projects' | 'study';
+export type AppChannel = 'werewolves' | 'gartic' | 'projects' | 'study' | 'camera';
+export type CameraActivity = 'werewolves' | 'gartic';
+export interface GameCameraView {
+  local: MediaStream | null; pending: boolean; error: string | null;
+  remote: { identityId: IdentityId; stream: MediaStream }[];
+}
 export interface AppMessage { channel: AppChannel; from: IdentityId; data: string }
 
 export type IdentityId = string;
@@ -40,7 +45,7 @@ export interface MediaView { micEnabled: boolean; muted: boolean; deafened: bool
 export interface NetworkView {
   phase: SessionPhase; isHost: boolean; hostId: IdentityId | null; sessionId: string | null; invite: string | null;
   members: Member[]; houses: PublicHouse[]; pendingJoins: JoinRequest[]; pendingVisits: VisitRequest[];
-  strokes: BoardStroke[]; hostGraceRemainingMs: number | null; error: string | null; media: MediaView;
+  strokes: BoardStroke[]; hostGraceRemainingMs: number | null; error: string | null; media: MediaView; gameCamera: GameCameraView;
   /** Private voice: who you asked, whether they asked you back, and who is asking you. */
   privateCall: { with: IdentityId | null; active: boolean; incoming: IdentityId[] };
 }
@@ -55,6 +60,8 @@ export interface VillageActions {
   toggleMicrophone(): Promise<void>; setMuted(muted: boolean): void;
   setDeafened(deafened: boolean): void; setPushToTalk(enabled: boolean): void; setTalking(talking: boolean): void;
   startScreen(): Promise<void>; stopScreen(): void;
+  setCameraActivity(activity: CameraActivity | null): void;
+  toggleGameCamera(): Promise<void>;
   /** Ask for (or accept) a private call with one person; null returns to public voice. */
   requestPrivate(identityId: IdentityId | null): void;
   /** Send a shared-activity message to one member, or to everyone with `to: null`. */

@@ -1,3 +1,4 @@
+import { GameCameraDock } from './game-camera-ui';
 import { StudyPanel } from './study-ui';
 import { StudyQuiz, type QuizAction, type QuizView } from '../minigames/study-quiz';
 import { OllamaGarticBots } from '../ai/gartic-bots';
@@ -74,7 +75,7 @@ export interface WorldExpansionCallbacks {
   requestStageRedraw(): void;
   /** A full-screen activity opened or closed: the stage must stop taking keys. */
   activityChanged(open: boolean): void;
-  actions: Pick<AppActions, 'sendApp' | 'onApp'>;
+  actions: Pick<AppActions, 'sendApp' | 'onApp' | 'setCameraActivity' | 'toggleGameCamera'>;
 }
 
 type ActivityKind = 'werewolves' | 'gartic' | 'notes' | 'projects';
@@ -89,6 +90,7 @@ export class WorldExpansionUIController {
   readonly studySession: MultiplayerStudySession;
 
   private callbacks: WorldExpansionCallbacks;
+  private cameraDock: GameCameraDock;
 
   // Shared activities: one authority (the village host, or this device offline).
   readonly werewolvesRoom: SharedRoom<WerewolvesAction, WerewolvesView>;
@@ -122,6 +124,7 @@ export class WorldExpansionUIController {
 
   constructor(callbacks: WorldExpansionCallbacks) {
     this.callbacks = callbacks;
+    this.cameraDock = new GameCameraDock(() => callbacks.actions.toggleGameCamera());
     this.objectRegistry = new InteractiveObjectRegistry(DEFAULT_AREA_OBJECTS);
     this.environment = new EnvironmentController();
     this.boardRegistry = new WhiteboardRegistry();
@@ -176,6 +179,7 @@ export class WorldExpansionUIController {
     this.studyRoom.sync();
     const view = this.callbacks.getView();
     if (!view) return;
+    this.cameraDock.update(view);
     // «Working now» only means something for people who are actually here.
     const present = new Set(view.network.members.filter((m) => m.connected).map((m) => m.identity.fingerprint));
     present.add(view.identity.fingerprint);
@@ -414,6 +418,11 @@ export class WorldExpansionUIController {
       // Each room/panel pair shares one view type; TypeScript cannot see that through the union.
       this.activityUnsubscribe = (room as SharedRoom<unknown, unknown>).subscribe((view, error) => (panel as { update(v: unknown, e: string | null): void }).update(view, error));
       room.refresh();
+      if (kind === 'werewolves' || kind === 'gartic') {
+        this.cameraDock.mount(this.activityOverlay);
+        this.callbacks.actions.setCameraActivity(kind);
+        const current = this.callbacks.getView(); if (current) this.cameraDock.update(current);
+      }
       if ((kind === 'werewolves' || kind === 'gartic') && room.canStop()) {
         const stop = btn('Terminar partida', 'sv-activity-stop');
         let armed = false;
@@ -432,6 +441,8 @@ export class WorldExpansionUIController {
 
   closeModal(): void {
     const wasOpen = this.activeModalKind !== null;
+    this.cameraDock.unmount();
+    this.callbacks.actions.setCameraActivity(null);
     this.activityUnsubscribe?.();
     this.activityUnsubscribe = null;
     this.werewolvesPanel.unmount();

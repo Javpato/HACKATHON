@@ -41,7 +41,7 @@ export const strokeSchema = z.strictObject({
 const signature = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
 export const signedHouseSchema = z.strictObject({ house: houseSchema, signature });
 export const signedStrokeSchema = z.strictObject({ stroke: strokeSchema, signature });
-export const appChannelSchema = z.enum(['werewolves', 'gartic', 'projects', 'study']);
+export const appChannelSchema = z.enum(['werewolves', 'gartic', 'projects', 'study', 'camera']);
 const appDataSchema = z.string().min(2).max(LIMITS.appData);
 export const inviteSchema = z.strictObject({
   v: z.literal(1), sessionId: idSchema, epoch: integer.min(1), hostFingerprint: fingerprintSchema,
@@ -118,6 +118,12 @@ export const mediaMetadataSchema = z.strictObject({
   epoch: integer.min(1), room: roomSchema, identityId: fingerprintSchema, token: nonce,
 });
 export type MediaMetadata = z.infer<typeof mediaMetadataSchema>;
+export const cameraPresenceSchema = z.strictObject({ game: z.enum(['werewolves', 'gartic']).nullable(), request: z.boolean() });
+export const cameraMetadataSchema = z.strictObject({
+  v: z.literal(2), kind: z.literal('camera'), sessionId: idSchema, epoch: integer.min(1),
+  room: z.string().regex(/^(village|area:(?:residential|community|study)|house:[a-f0-9]{64}):game:(werewolves|gartic)$/),
+  identityId: fingerprintSchema, token: nonce,
+});
 export function parseWire(raw: unknown): WireMessage {
   if (typeof raw !== 'string' || new TextEncoder().encode(raw).byteLength > LIMITS.messageBytes) throw new Error('Mensaje fuera de límites.');
   return wireSchema.parse(JSON.parse(raw));

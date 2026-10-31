@@ -230,7 +230,7 @@ Este bloque sustituye la descripción de bots y tarjetas de los bloques anterior
   Se rechazan solapamientos y cambios que bloqueen entrada o acceso a muebles.
   `rotation` es opcional y no cambia la representación de casas antiguas.
 
-Verificación local: `npm run check` pasó (99 tests y build). Pruebas de interfaz en
+Verificación local: `npm run check` pasó (100 tests y build). Pruebas de interfaz en
 Chrome en teléfono, iPad y escritorio incluyen creación/repaso/persistencia,
 rotar/deshacer/persistir muebles, cartas, cancelación y Ollama simulado. La prueba
 Ollama valida la integración, no el rendimiento de un modelo real. Multijugador
@@ -239,3 +239,54 @@ LIVE usa dos navegadores del mismo equipo, no dos redes físicas.
 Entrega: generar un único instalador Windows 0.2.0 desde el código final; comprobar
 el artefacto y su hash. La compilación de Windows no prueba su ejecución real.
 Los clientes de una aldea deben usar la misma versión del protocolo actualizado.
+
+Comprobación final de 0.2.0:
+- 100/100 pruebas de código; typecheck y build correctos.
+- 34/34 pruebas locales de navegador; 5/5 LIVE ejecutadas por separado.
+- Código guardado en rama privada `build/retro-activities-20261031`, commit final `871e85e` (base `9e6d401`).
+- Build nativo: https://github.com/Javpato/HACKATHON/actions/runs/41243610268
+- Entrega prevista: `deliverables/windows-0.2.0/` (instalador, ZIP, hash e información
+  de build). No mezclar el .exe antiguo 0.1.0 con clientes 0.2.0.
+
+- Última regresión corregida: si un enamorado abandona, se aplica el vínculo y
+  el Cazador puede disparar; después continúa la fase/turno que estaba en curso.
+  Se pausan los segundos restantes durante el disparo y se invalidan votos a
+  quienes ya no viven. `npm run check`: 100 tests, build; prueba de navegador
+  de Hombres Lobo repetida y correcta. El build previo fue cancelado.
+
+
+Entrega final 0.2.0 completada:
+- CI Windows y Linux correctos en run 41243610268.
+- EXE y ZIP comprobados en deliverables/windows-0.2.0/. SHA-256 del instalador:
+  c1b822754427a0e6a5e2b99f6b23531d93e66c35132688683acacbd0fbd92857.
+- AppImage 0.2.0 descargada a deliverables/linux-0.2.0/appimage/ y abierta;
+  ventana nativa StudyVillage confirmada con wmctrl. No se probó runtime Windows.
+- Tres megaprompts solicitados en deliverables/replication-prompts/, con 64
+  bloques canónicos, variantes sin IA comprobadas por TypeScript y dos smoke
+  tests funcionales adicionales. Incluyen contratos/reglas/estados/aceptación.
+- Bundle completo: deliverables/StudyVillage-tres-megaprompts-0.2.0.zip,
+  con los 3 Markdown, capturas, manifiesto y snapshot de fuente sin secretos.
+- La app no cambió durante la generación de prompts: app/src comparado byte a
+  byte con checkout del commit compilado 871e85e.
+
+
+## Cámaras opcionales en juegos — 0.2.1 (2026-10-31)
+
+- Nuevo `media/game-camera.ts`: cámara independiente de voz/pantalla, captura
+  solo tras gesto (ideal 1920x1080, 30 fps, audio false), permiso cancelable y
+  descarte de resultados tardíos. No se activa una webcam física al abrir juegos.
+- Relay autenticado `camera` anuncia qué juego está abierto. Se ofrece vídeo
+  solo a miembros en la misma escena y con el mismo juego abierto. El receptor
+  comprueba sesión/epoch/identidad/endpoint/token/escena/juego. Cerrar el panel,
+  cambiar de juego/escena o terminar sesión detiene pistas y llamadas.
+- Nuevo `ui/game-camera-ui.ts`: tarjeta cuadrada, esquinas 22 px, sombra suave,
+  nombre y calidad real, vista propia en espejo. Dock lateral en escritorio/iPad
+  y tira inferior en móvil; botón compacto si no hay vídeo. No tapa el tablero.
+- Cámara y pantalla tienen conexiones distintas. WebRTC solicita hasta 6 Mbps
+  para cámara y prioriza resolución, con adaptación real del navegador/red.
+- `npm run check`: 104 tests y build. Siete pruebas nuevas de cámara en UI y
+  una LIVE con dos Chrome pasaron usando webcams sintéticas: juegos diferentes
+  no comparten vídeo; mismo juego sí, también con un visor sin cámara propia;
+  cerrar detiene el envío. No se afirma prueba de una webcam física/Windows.
+- Versión bump 0.2.1; reconstruir instaladores antes de entregar. Los clientes
+  de una sesión deben actualizarse juntos por el canal de presencia nuevo.
