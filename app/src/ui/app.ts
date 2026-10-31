@@ -1,3 +1,4 @@
+import { WardrobePanel } from './wardrobe-ui';
 import { DecorationHistory, placementError } from '../house/decoration';
 import { isInScene } from '../world/location';
 import './style.css';
@@ -11,7 +12,7 @@ import {
 import {
   ACCESSORY_LABELS, HAIR_COLORS, HAIR_STYLE_LABELS, SKIN_TONES,
   exportAssetPackJson, getAvatarCustomization, getFurnitureCustomColor,
-  importAssetPackJson, setAvatarCustomization, setFurnitureCustomColor,
+  importAssetPackJson, setFurnitureCustomColor,
   setFurnitureCustomSprite, type AvatarAccessory, type HairStyle,
 } from '../assets/custom-assets';
 import { insertAtSelection } from '../editor/snippets';
@@ -306,6 +307,7 @@ class StudyUI {
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   /** A game, the notes or the projects fill the window: the stage takes no input. */
   private activityOpen = false;
+  private wardrobe: WardrobePanel;
   /** Walking towards something that was clicked; used on arrival. */
   private pendingInteraction: Interaction | null = null;
   private dragMoved = false;
@@ -346,8 +348,13 @@ class StudyUI {
       },
       actions,
     });
+    this.wardrobe = new WardrobePanel({
+      save: look => this.actions.updateAppearance(look),
+      closed: () => { this.stopMoving(); this.lastStageRenderSig = ''; this.stageCanvas?.focus(); },
+    });
     loadAvatarSheet();
     this.build();
+    this.shell.append(this.wardrobe.root);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
@@ -384,6 +391,7 @@ class StudyUI {
 
   destroy(): void {
     cancelAnimationFrame(this.raf);
+    this.wardrobe.dispose();
     this.expansion.dispose();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
@@ -474,24 +482,25 @@ class StudyUI {
     );
     hairStyleSelect.value = currentAvatar.hairStyle;
     hairStyleSelect.addEventListener('change', () => {
-      setAvatarCustomization({ hairStyle: hairStyleSelect.value as HairStyle });
+      this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), hairStyle: hairStyleSelect.value as HairStyle, useCustomSheet: false }));
     });
     const accessorySelect = select(
       (Object.keys(ACCESSORY_LABELS) as AvatarAccessory[]).map((k) => ({ value: k, label: ACCESSORY_LABELS[k] })),
     );
     accessorySelect.value = currentAvatar.accessory;
     accessorySelect.addEventListener('change', () => {
-      setAvatarCustomization({ accessory: accessorySelect.value as AvatarAccessory });
+      const accessory = accessorySelect.value as AvatarAccessory;
+      this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), accessory, headwear: accessory === 'hat' ? 'explorer' : 'none', eyewear: accessory === 'glasses' ? 'square' : 'none', useCustomSheet: false }));
     });
     const hairColorInput = node('input', 'sv-color-input');
     hairColorInput.type = 'color';
     hairColorInput.value = currentAvatar.hairColor || HAIR_COLORS[0];
-    hairColorInput.addEventListener('input', () => setAvatarCustomization({ hairColor: hairColorInput.value }));
+    hairColorInput.addEventListener('change', () => this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), hairColor: hairColorInput.value, useCustomSheet: false })));
     const skinToneSelect = select(
       SKIN_TONES.map((tone, idx) => ({ value: tone, label: `Tono ${idx + 1}` })),
     );
     skinToneSelect.value = currentAvatar.skinTone;
-    skinToneSelect.addEventListener('change', () => setAvatarCustomization({ skinTone: skinToneSelect.value }));
+    skinToneSelect.addEventListener('change', () => this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), skinTone: skinToneSelect.value, useCustomSheet: false })));
 
     const assetGrid = node('div', 'sv-asset-grid');
     append(
@@ -525,6 +534,7 @@ class StudyUI {
       void file.text().then((raw) => {
         const res = importAssetPackJson(raw);
         this.notify(res.message);
+        if (res.ok) this.run(() => this.actions.updateAppearance(getAvatarCustomization()));
       });
       importPackInput.value = '';
     });
@@ -540,12 +550,13 @@ class StudyUI {
       if (file.size > 512 * 1024) { this.notify('El PNG supera 512 KB.'); avatarFile.value = ''; return; }
       const reader = new FileReader();
       reader.onload = () => { void setAvatarSheet(String(reader.result)).then(() => {
+        this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), useCustomSheet: true }));
         this.lastStageRenderSig = ''; this.notify('Cuadrícula de personaje guardada en este equipo.');
       }).catch(error => this.notify(error instanceof Error ? error.message : 'No se pudo cargar el PNG.')); };
       reader.readAsDataURL(file);
     });
     const resetAvatar = button('Restablecer personaje', 'sv-button');
-    resetAvatar.addEventListener('click', () => { void setAvatarSheet(null); avatarFile.value = ''; this.lastStageRenderSig = ''; });
+    resetAvatar.addEventListener('click', () => { void setAvatarSheet(null); this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), useCustomSheet: false })); avatarFile.value = ''; this.lastStageRenderSig = ''; });
     append(customizer, summary, assetGrid, packRow, field('Cuadrícula PNG del personaje', avatarFile),
       node('p', 'sv-subtle', '3 columnas de animación y 4 filas: abajo, izquierda, derecha, arriba. Se guarda en este equipo.'), resetAvatar);
 
@@ -2303,7 +2314,8 @@ class StudyUI {
         this.openStudyAiModal();
         break;
       case 'cabinet':
-        this.expansion.openActivity('notes');
+        this.closePhone(); this.expansion.closeModal(); this.stopMoving();
+        this.wardrobe.open(view.identity);
         break;
       case 'frame':
         if (isOwn) {
@@ -2933,7 +2945,7 @@ class StudyUI {
 
   private onStagePointerDown = (event: PointerEvent): void => {
     const view = this.view;
-    if (!view || this.settingsDialog.open || this.activityOpen) return;
+    if (!view || this.settingsDialog.open || this.activityOpen || this.wardrobe.isOpen()) return;
     if (!this.phone.hidden) { this.closePhone(); return; }
     const point = this.canvasPoint(event, this.stageCanvas);
     if (this.decorating && this.pendingFurniture && this.pane === 'house') {
@@ -3159,7 +3171,7 @@ class StudyUI {
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.view || this.settingsDialog.open || this.view.lockedIdentity) return;
+    if (!this.view || this.settingsDialog.open || this.wardrobe.isOpen() || this.view.lockedIdentity) return;
     const key = event.key.toLowerCase();
     if (this.decorating && key === 'escape') { if (this.pendingFurniture || this.drag || this.previewHouse) { this.pendingFurniture = null; this.drag = null; this.previewHouse = null; this.decorationInvalid = null; } else this.endDecoration(); event.preventDefault(); return; }
     if (this.decorating) return;
@@ -3232,7 +3244,7 @@ class StudyUI {
       let vy = Number(this.keys.has('s') || this.keys.has('arrowdown') || this.dpadKeys.has('arrowdown'))
         - Number(this.keys.has('w') || this.keys.has('arrowup') || this.dpadKeys.has('arrowup'));
 
-      if (this.phone.hidden === false || this.activityOpen || this.decorating) {
+      if (this.phone.hidden === false || this.activityOpen || this.decorating || this.wardrobe.isOpen()) {
         vx = 0; vy = 0;
       }
       if (!this.moveTarget) this.movePath = [];
@@ -3456,7 +3468,7 @@ class StudyUI {
     const people: DrawPerson[] = [{ identity: view.identity, position: this.localPosition, isOwn: true }];
     for (const member of view.network.members) {
       if (!member.connected || member.identity.fingerprint === view.identity.fingerprint || !isInScene(member, this.currentArea, sceneHouse)) continue;
-      people.push({ identity: member.identity, position: member.position, isOwn: false });
+      people.push({ identity: member.identity, position: member.position, isOwn: false, appearance: member.appearance });
     }
     return people;
   }

@@ -26,12 +26,12 @@ test('decoration validates previews, rotates, undoes, redoes and persists',async
   const controls=page.getByRole('group',{name:'Decorar habitación'});await expect(controls).toBeVisible();
   const canvas=page.locator('.sv-stage-pane canvas');const box=(await canvas.boundingBox())!;
   const click=async(x:number,y:number)=>canvas.click({position:{x:box.width*x/768,y:box.height*y/432}});
-  await click(384,380);await expect(page.locator('.sv-furniture-item')).toHaveCount(6);
-  await click(256,272);await expect(page.locator('.sv-furniture-item')).toHaveCount(7);
+  await click(384,380);await expect(page.locator('.sv-furniture-item')).toHaveCount(7);
+  await click(256,272);await expect(page.locator('.sv-furniture-item')).toHaveCount(8);
   await controls.getByRole('button',{name:'Girar',exact:true}).click();await page.screenshot({path:'/tmp/redesign-decoration.png',fullPage:true,animations:'disabled'});
-  await controls.getByRole('button',{name:'Deshacer',exact:true}).click();await controls.getByRole('button',{name:'Deshacer',exact:true}).click();await expect(page.locator('.sv-furniture-item')).toHaveCount(6);
-  await controls.getByRole('button',{name:'Rehacer',exact:true}).click();await controls.getByRole('button',{name:'Rehacer',exact:true}).click();await expect(page.locator('.sv-furniture-item')).toHaveCount(7);
-  await controls.getByRole('button',{name:'Terminar',exact:true}).click();await expect(controls).toBeHidden();await page.reload();await app(page,'phone-decorate');await expect(page.locator('.sv-furniture-item')).toHaveCount(7);
+  await controls.getByRole('button',{name:'Deshacer',exact:true}).click();await controls.getByRole('button',{name:'Deshacer',exact:true}).click();await expect(page.locator('.sv-furniture-item')).toHaveCount(7);
+  await controls.getByRole('button',{name:'Rehacer',exact:true}).click();await controls.getByRole('button',{name:'Rehacer',exact:true}).click();await expect(page.locator('.sv-furniture-item')).toHaveCount(8);
+  await controls.getByRole('button',{name:'Terminar',exact:true}).click();await expect(controls).toBeHidden();await page.reload();await app(page,'phone-decorate');await expect(page.locator('.sv-furniture-item')).toHaveCount(8);
 });
 test('host selects role sets and ends a running Werewolves game',async({page})=>{
   await page.goto('/');const canvas=page.locator('.sv-stage-pane canvas');await canvas.focus();

@@ -1,3 +1,4 @@
+import { appearanceSchema, type AvatarAppearance } from '../assets/appearance';
 import { z } from 'zod';
 import type { Contact, EncryptedIdentity, PublicHouse } from '../protocol/types';
 
@@ -9,7 +10,7 @@ const contact = z.object({ schemaVersion: z.literal(1), identity, friendCode: te
 const encrypted = z.object({ v: z.literal(1), kdf: z.literal('PBKDF2-SHA256'), iterations: z.number().int().min(100_000).max(2_000_000), salt: text(128), iv: text(128), ciphertext: text(8192), publicIdentity: identity }).strict();
 const localSchema = z.object({
   schemaVersion: z.literal(1),
-  profile: z.object({ displayName: text(32).min(1), color: z.string().regex(/^#[0-9a-f]{6}$/i) }).strict(),
+  profile: z.object({ displayName: text(32).min(1), color: z.string().regex(/^#[0-9a-f]{6}$/i), appearance: appearanceSchema.optional(), wardrobeAdded: z.boolean().optional() }).strict(),
   house: houseSchema.nullable(), friendCode: text(128).min(1),
   contacts: z.array(contact).max(100), encryptedIdentity: encrypted.nullable(),
   editor: text(1_048_576),
@@ -18,7 +19,7 @@ const localSchema = z.object({
 
 export interface LocalData {
   schemaVersion: 1;
-  profile: { displayName: string; color: string };
+  profile: { displayName: string; color: string; appearance?: AvatarAppearance; wardrobeAdded?: boolean };
   house: PublicHouse | null;
   friendCode: string;
   contacts: Contact[];

@@ -290,3 +290,41 @@ Entrega final 0.2.0 completada:
   cerrar detiene el envío. No se afirma prueba de una webcam física/Windows.
 - Versión bump 0.2.1; reconstruir instaladores antes de entregar. Los clientes
   de una sesión deben actualizarse juntos por el canal de presencia nuevo.
+
+Build de cámaras 0.2.1 en curso: rama privada `build/game-cameras-20261031`,
+commit `6f4dc6470ef0c665e768b5f9576f4c47e070801c`, run
+https://github.com/Javpato/HACKATHON/actions/runs/41247811287 .
+
+Entrega de cámaras 0.2.1 completada:
+- 104/104 tests de código y 47/47 tests Playwright (incluidos seis LIVE) pasaron.
+- Windows y Linux compilados en run 41247811287. EXE/ZIP verificados en
+  deliverables/windows-0.2.1/. SHA-256 del EXE:
+  2b1af97450127d560a6f496af59f64d3b78e8f2af3dbad771cb0789515b60f45.
+- AppImage 0.2.1 descargada y abierta desde deliverables/linux-0.2.1/appimage/.
+- Segundo megaprompt ampliado con adenda de cámaras sin IA y código completo.
+  Nuevo bundle: deliverables/StudyVillage-tres-megaprompts-0.2.1.zip.
+  Se verificaron 73 bloques canónicos; versiones 0.2.0 conservadas.
+- app/src comparado byte a byte con checkout compilado 6f4dc64.
+- Cámara física y ejecución Windows no se afirmaron: vídeo probado con
+  cámaras sintéticas en dos Chrome del mismo ordenador.
+
+## Armario / vestidor (2026-11-01)
+
+Implementado en el código de trabajo: armario físico instalado una sola vez en
+casas nuevas/existentes cuando hay espacio válido; si el usuario lo retira no
+se repone automáticamente. Se puede colocar otro desde Decorar.
+Vestidor con vista previa giratoria, sombreros/lentes/ropa/sacos combinables,
+colores opcionales, pelo/piel y auriculares. Guardar look persiste; descartar
+conserva el anterior. Las hojas PNG personalizadas se conservan y se pueden
+volver a usar. El aspecto se comparte en Member.appearance mediante avatar.update
+validado por el anfitrión, sin cambiar identidad criptográfica ni muebles ajenos.
+Archivos principales: assets/appearance.ts, ui/wardrobe-ui.ts, house/wardrobe.ts,
+ui/art.ts, protocol/schema.ts, session/client.ts y bootstrap.ts.
+Smoke de navegador PASS: llegar caminando al armario, combinar sombrero/lentes/
+traje/saco, guardar y recargar conserva el look. Script /tmp/wardrobe-smoke.mjs;
+captura /tmp/wardrobe-preview.png. Se redujeron anuncios de tokens redundantes
+al recibir snapshots cosméticos: se anuncian al entrar/reconectar.
+El usuario pidió terminar inmediatamente por falta de uso. No se ha reconstruido
+el instalador: el .exe 0.2.1 entregado antes NO contiene este vestidor. Los cambios
+están en el código y en la versión web local. Los megaprompts anteriores aún no
+incluyen el vestidor.

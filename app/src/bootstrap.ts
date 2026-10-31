@@ -1,3 +1,6 @@
+import { getAvatarCustomization, setAvatarCustomization } from './assets/custom-assets';
+import { appearanceSchema } from './assets/appearance';
+import { installWardrobe } from './house/wardrobe';
 import { decryptIdentity, encryptIdentity, exportContact, generateIdentity, parseContact } from './identity';
 import { VillageClient } from './session/client';
 import { createStudyUI } from './ui/app';
@@ -26,7 +29,13 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
   let identity = await generateIdentity(data.profile.displayName, data.profile.color);
   let lockedIdentity = !!data.encryptedIdentity;
   let ownHouse = data.house ? publicHouse(data.house, identity.public.fingerprint) : initialHouse(identity.public.fingerprint);
-  let client = new VillageClient(identity, ownHouse);
+  if (data.profile.appearance) setAvatarCustomization(data.profile.appearance);
+  const wardrobeMigration = !data.profile.wardrobeAdded;
+  if (wardrobeMigration) {
+    ownHouse = installWardrobe(ownHouse);
+    if (ownHouse.furniture.some(f => f.kind === 'cabinet')) data.profile.wardrobeAdded = true;
+  }
+  let client = new VillageClient(identity, ownHouse, { appearance: getAvatarCustomization() });
   let network = client.view;
   let notice: string | null = lockedIdentity ? 'Desbloquea tu identidad guardada para conectar. Tu casa sigue disponible sin conexión.' : null;
   let closed = false;
@@ -58,7 +67,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     const offApp = client.onApp(message => { for (const listener of appListeners) listener(message); });
     unsubscribe = () => { offView(); offApp(); };
   };
-  const replaceClient = () => { unsubscribe(); client.dispose(); client = new VillageClient(identity, ownHouse); subscribe(); };
+  const replaceClient = () => { unsubscribe(); client.dispose(); client = new VillageClient(identity, ownHouse, { appearance: getAvatarCustomization() }); subscribe(); };
   const requireOffline = () => { if (activePhases.has(network.phase)) throw new Error('Sal del vecindario antes de cambiar tu identidad o perfil.'); };
   const requireUnlocked = () => { if (lockedIdentity) throw new Error('Desbloquea tu identidad guardada antes de conectar.'); };
   const run = async (action: () => void | Promise<void>) => { try { await action(); } catch (error) { report(error); throw error; } };
@@ -88,6 +97,12 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     stopScreen: () => client.stopScreen(),
     setCameraActivity: activity => client.setCameraActivity(activity),
     toggleGameCamera: () => run(() => client.toggleGameCamera()),
+    updateAppearance: appearance => run(async () => {
+      const next = appearanceSchema.parse(appearance); const previous = data.profile.appearance;
+      data.profile.appearance = next; await persist();
+      if (savingFailed) { data.profile.appearance = previous; throw new Error('No se pudo guardar el look. Vuelve a intentarlo.'); }
+      setAvatarCustomization(next); await client.updateAppearance(next); update();
+    }),
     requestPrivate: (identityId) => client.requestPrivate(identityId),
     sendApp: (channel, to, data) => client.sendApp(channel, to, data),
     onApp: listener => { appListeners.add(listener); return () => { appListeners.delete(listener); }; },
@@ -95,7 +110,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
       requireOffline();
       const name = displayName.trim().slice(0, 32);
       if (!name || !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Elige un nombre y un color válidos.');
-      data.profile = { displayName: name, color };
+      data.profile = { ...data.profile, displayName: name, color };
       identity.public = { ...identity.public, displayName: name, color };
       replaceClient(); await persist(); update();
     }),
@@ -161,7 +176,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     dismissNotice: () => { notice = null; update(); },
   };
   ui = createStudyUI(root, actions); subscribe();
-  if (!loaded) await persist();
+  if (!loaded || wardrobeMigration) await persist();
   update();
   const dispose = () => {
     if (closed) return;

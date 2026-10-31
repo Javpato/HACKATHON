@@ -1,3 +1,4 @@
+import { appearanceSchema } from '../assets/appearance';
 import { z } from 'zod';
 import { LIMITS } from './types';
 
@@ -27,7 +28,7 @@ export const houseSchema = z.strictObject({
 }).refine(house => new Set(house.furniture.map(item => item.id)).size === house.furniture.length);
 export const memberSchema = z.strictObject({
   identity: identitySchema, endpoint: endpointSchema, slot: z.number().int().min(0).max(5),
-  connected: z.boolean(), houseId: fingerprintSchema.nullable(), position: positionSchema,
+  appearance: appearanceSchema.optional(), connected: z.boolean(), houseId: fingerprintSchema.nullable(), position: positionSchema,
 });
 const boardCoordinate = z.number().min(-LIMITS.boardExtent).max(LIMITS.boardExtent);
 export const strokeSchema = z.strictObject({
@@ -78,6 +79,7 @@ export const payloadSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('house.visit.result'), requestId: idSchema, accepted: z.boolean() }),
   z.strictObject({ type: z.literal('house.leave') }),
   z.strictObject({ type: z.literal('house.kick'), identityId: fingerprintSchema }),
+  z.strictObject({ type: z.literal('avatar.update'), appearance: appearanceSchema }),
   z.strictObject({ type: z.literal('player.position'), position: positionSchema }),
   z.strictObject({ type: z.literal('player.relay'), identityId: fingerprintSchema, position: positionSchema }),
   z.strictObject({ type: z.literal('board.stroke'), document: signedStrokeSchema }),

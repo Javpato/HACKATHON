@@ -1,3 +1,4 @@
+import { appearanceSchema, normalizeAppearance, type AvatarAppearance } from '../assets/appearance';
 import { GameCameraManager, type CameraPeer } from '../media/game-camera';
 import { cameraMetadataSchema, cameraPresenceSchema } from '../protocol/schema';
 import type { CameraActivity } from '../protocol/types';
@@ -50,7 +51,7 @@ function describeJoinFailure(step: OpenStep, error: unknown): string {
   }
 }
 
-export interface VillageClientOptions { transportFactory?: TransportFactory; clock?: Clock; mediaDevices?: MediaDevicesAdapter }
+export interface VillageClientOptions { transportFactory?: TransportFactory; clock?: Clock; mediaDevices?: MediaDevicesAdapter; appearance?: AvatarAppearance }
 type Intent = 'join' | 'resume' | 'mesh';
 interface Link {
   raw: DataChannel; wire: BoundedChannel; initiator: boolean; intent?: Intent; expected?: PublicIdentity | string;
@@ -66,6 +67,7 @@ const activePhases: SessionPhase[] = ['SIGNALING', 'CONNECTING', 'AUTHENTICATING
 
 export class VillageClient implements VillageActions {
   private ownHouse: PublicHouse;
+  private ownAppearance: AvatarAppearance;
   private phase: SessionPhase = 'IDLE';
   private isHost = false;
   private sessionId: string | null = null;
@@ -109,6 +111,7 @@ export class VillageClient implements VillageActions {
   private runningJob = false;
 
   constructor(private identity: LocalIdentity, ownHouse: PublicHouse, options: VillageClientOptions = {}) {
+    this.ownAppearance = normalizeAppearance(options.appearance);
     this.camera = new GameCameraManager(() => this.notify(), options.mediaDevices);
     this.ownHouse = houseSchema.parse(ownHouse);
     if (ownHouse.ownerId !== identity.public.fingerprint) throw new Error('La casa debe pertenecer a la identidad local.');
@@ -197,7 +200,7 @@ export class VillageClient implements VillageActions {
       if (generation !== this.generation || this.disposed) { endpoint.destroy(); return; }
       step = 'session';
       this.attachEndpoint(endpoint);
-      this.members.set(this.id, { identity: structuredClone(this.identity.public), endpoint: endpoint.id, slot: 0, connected: true, houseId: null, position: initialPosition() });
+      this.members.set(this.id, { identity: structuredClone(this.identity.public), endpoint: endpoint.id, slot: 0, connected: true, houseId: null, position: initialPosition(), appearance: this.ownAppearance });
       step = 'signing';
       const ownDocument = await this.signHouse(this.ownHouse);
       if (generation !== this.generation) return;
@@ -407,8 +410,17 @@ export class VillageClient implements VillageActions {
       this.rosterRevision = payload.revision; this.hostDeadline = null; this.error = null;
       const firstJoin = this.phase !== 'JOINED'; this.phase = 'JOINED';
       if (firstJoin) this.publishHouseDocument();
-      this.announceMedia(link);
+      if (firstJoin && JSON.stringify(self.appearance) !== JSON.stringify(this.ownAppearance)) this.sendHost({ type: 'avatar.update', appearance: this.ownAppearance });
+      if (firstJoin) this.announceMedia(link);
       this.reconcileMesh(); this.syncMedia(); this.notify(); return;
+    }
+    if (payload.type === 'avatar.update') {
+      if (!this.isHost) throw new Error('Only the coordinator updates appearances');
+      const member = this.members.get(sender);
+      if (member?.connected && JSON.stringify(member.appearance) !== JSON.stringify(payload.appearance)) {
+        member.appearance = payload.appearance; this.rosterChanged();
+      }
+      return;
     }
     if (payload.type === 'media.token') { link.sendToken = payload.token; this.syncMedia(); return; }
     if (payload.type === 'media.received') {
@@ -715,6 +727,15 @@ export class VillageClient implements VillageActions {
       peers.push({ identityId: id, endpoint: member.endpoint, sendToken: link.sendToken, receiveToken: link.receiveToken });
     }
     this.media.setContext({ sessionId: this.sessionId!, epoch: this.epoch, identityId: this.id, room, roomName, peers });
+  }
+  async updateAppearance(raw: AvatarAppearance): Promise<void> {
+    this.ownAppearance = appearanceSchema.parse(raw);
+    const self = this.members.get(this.id); if (self) self.appearance = this.ownAppearance;
+    if (this.phase === 'JOINED') {
+      if (this.isHost) this.rosterChanged();
+      else this.sendHost({ type: 'avatar.update', appearance: this.ownAppearance });
+    }
+    this.notify();
   }
   setCameraActivity(activity: CameraActivity | null): void {
     if (activity === this.cameraActivity) return;

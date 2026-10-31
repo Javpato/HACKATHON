@@ -763,7 +763,7 @@ export function drawCommunityPlaza(
     const at = trackCharacter(id, person.position, dt, !person.isOwn, 'community');
     sprites.push({
       baseline: at.y,
-      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
+      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn, { appearance: person.appearance }),
     });
   }
 
@@ -833,7 +833,7 @@ export function drawStudyLibrary(
     const at = trackCharacter(id, person.position, dt, !person.isOwn, 'study');
     sprites.push({
       baseline: at.y,
-      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
+      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn, { appearance: person.appearance }),
     });
   }
 

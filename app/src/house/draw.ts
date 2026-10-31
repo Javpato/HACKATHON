@@ -354,6 +354,12 @@ function paintFurniture(
           fill(ctx, baseEarth3, x + dx, y + 8, w / 2 - 8, 3);
           fill(ctx, shade(baseEarth0, -4), x + dx + 2, y + 14, w / 2 - 12, 2);
         }
+        // Hanger and mirror distinguish the wardrobe from a notes cabinet.
+        fill(ctx, '#dfc18c', x + 9, y + 16, 9, 1);
+        fill(ctx, '#dfc18c', x + 11, y + 14, 5, 1);
+        fill(ctx, '#dfc18c', x + 13, y + 12, 1, 3);
+        fill(ctx, '#789e97', x + w / 2 + 6, y + 14, 10, 14);
+        fill(ctx, '#a9c4b5', x + w / 2 + 7, y + 15, 3, 10);
         fill(ctx, ember4, x + w / 2 - 5, y + 22, 3, 4);
         fill(ctx, ember4, x + w / 2 + 3, y + 22, 3, 4);
         fill(ctx, baseEarth3, x, y + h - 5, w, 4);
@@ -507,7 +513,7 @@ export function drawHouseInterior(
     const at = trackCharacter(id, person.position, dt, !person.isOwn, `house:${house.ownerId}`);
     sprites.push({
       baseline: at.y,
-      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
+      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn, { appearance: person.appearance }),
     });
   }
   sprites.sort((a, b) => a.baseline - b.baseline);

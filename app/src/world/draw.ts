@@ -1,3 +1,4 @@
+import type { AvatarCustomization } from '../assets/custom-assets';
 import { type PublicIdentity, type Position } from '../protocol/types';
 import {
   PALETTE, animClock, contactShadow, drawAvatar, drawTree, fill,
@@ -6,7 +7,7 @@ import {
 import { drawPortalSign, WORLD_AREAS } from './areas';
 import { PARCELS, WORLD_TREES, type OccupiedParcel } from './model';
 
-export interface DrawPerson { identity: PublicIdentity; position: Position; isOwn: boolean }
+export interface DrawPerson { identity: PublicIdentity; position: Position; isOwn: boolean; appearance?: AvatarCustomization }
 
 const W = 768;
 const H = 432;
@@ -459,7 +460,7 @@ export function drawWorld(
     const at = trackCharacter(id, person.position, dt, !person.isOwn);
     sprites.push({
       baseline: at.y,
-      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
+      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn, { appearance: person.appearance }),
     });
   }
 

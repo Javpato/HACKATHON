@@ -1,3 +1,4 @@
+import type { AvatarAppearance } from '../assets/appearance';
 /** Frozen cross-module API. Only the integrator changes this file. */
 export const LIMITS = {
   members: 6, hostGraceMs: 60_000, leaveAckMs: 1_500,
@@ -33,7 +34,7 @@ export type FurnitureKind = 'desk' | 'bookshelf' | 'board' | 'plant' | 'table' |
 export interface Furniture { rotation?: 0 | 90 | 180 | 270; id: string; kind: FurnitureKind; x: number; y: number; publicAlias: string }
 export interface PublicHouse { ownerId: IdentityId; revision: number; name: string; access: HouseAccess; theme: 'mint' | 'peach'; furniture: Furniture[] }
 export interface Position { areaId?: 'residential' | 'community' | 'study'; x: number; y: number; direction: 'up' | 'down' | 'left' | 'right'; moving: boolean }
-export interface Member { identity: PublicIdentity; endpoint: string; slot: number; connected: boolean; houseId: IdentityId | null; position: Position }
+export interface Member { appearance?: AvatarAppearance; identity: PublicIdentity; endpoint: string; slot: number; connected: boolean; houseId: IdentityId | null; position: Position }
 export interface JoinRequest { requestId: string; identity: PublicIdentity }
 export interface VisitRequest { requestId: string; identity: PublicIdentity; houseId: IdentityId }
 export type SessionPhase = 'IDLE' | 'SIGNALING' | 'CONNECTING' | 'AUTHENTICATING' | 'PENDING_APPROVAL' | 'JOINED' | 'RECONNECTING' | 'DENIED' | 'EXPIRED_INVITE' | 'NETWORK_FAILED' | 'KICKED' | 'CLOSED';
@@ -62,6 +63,7 @@ export interface VillageActions {
   startScreen(): Promise<void>; stopScreen(): void;
   setCameraActivity(activity: CameraActivity | null): void;
   toggleGameCamera(): Promise<void>;
+  updateAppearance(appearance: AvatarAppearance): Promise<void>;
   /** Ask for (or accept) a private call with one person; null returns to public voice. */
   requestPrivate(identityId: IdentityId | null): void;
   /** Send a shared-activity message to one member, or to everyone with `to: null`. */

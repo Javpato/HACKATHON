@@ -29,7 +29,7 @@ export const FURNITURE_ACTION_LABELS: Record<FurnitureKind, string> = {
   plant: 'Cuidar planta',
   table: 'Mesa de estudio y voz',
   frame: 'Ver cuadro / imagen',
-  cabinet: 'Abrir apuntes',
+  cabinet: 'Cambiar de ropa',
 };
 
 export const FURNITURE_PROMPT_LABELS: Record<FurnitureKind, string> = {
@@ -39,7 +39,7 @@ export const FURNITURE_PROMPT_LABELS: Record<FurnitureKind, string> = {
   plant: 'E · Cuidar planta',
   table: 'E · Mesa de voz',
   frame: 'E · Ver cuadro',
-  cabinet: 'E · Apuntes',
+  cabinet: 'E · Abrir armario',
 };
 
 export function furnitureRect(item: Furniture): Rect {
