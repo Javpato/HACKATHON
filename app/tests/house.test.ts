@@ -42,4 +42,13 @@ describe('house doorway', () => {
     expect(atHouseDoor({ x: 384, y: 220, direction: 'down', moving: false })).toBe(false);
     expect(atHouseDoor({ x: 120, y: 396, direction: 'down', moving: false })).toBe(false);
   });
+
+  it('detects nearby furniture for E interaction without triggering at the house spawn point', async () => {
+    const { closestFurniture, HOUSE_SPAWN } = await import('../src/house/model');
+    const house = addFurniture(empty(), 'desk', 'owner', 'desk-1');
+    expect(closestFurniture(HOUSE_SPAWN, house)).toBeNull();
+    const nearDesk = closestFurniture({ x: 130, y: 170, direction: 'up', moving: false }, house);
+    expect(nearDesk?.kind).toBe('desk');
+  });
 });
+

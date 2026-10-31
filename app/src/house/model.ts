@@ -22,6 +22,26 @@ export const FURNITURE_LABELS: Record<FurnitureKind, string> = {
   table: 'Mesa', frame: 'Cuadro', cabinet: 'Armario',
 };
 
+export const FURNITURE_ACTION_LABELS: Record<FurnitureKind, string> = {
+  desk: 'Abrir cuaderno de código',
+  bookshelf: 'Abrir lectura / PDF local',
+  board: 'Abrir pizarra colaborativa',
+  plant: 'Cuidar planta',
+  table: 'Mesa de estudio y voz',
+  frame: 'Ver cuadro / imagen',
+  cabinet: 'Vincular archivo / proyecto',
+};
+
+export const FURNITURE_PROMPT_LABELS: Record<FurnitureKind, string> = {
+  desk: 'E · Cuaderno de código',
+  bookshelf: 'E · Lectura / PDF',
+  board: 'E · Abrir Pizarra',
+  plant: 'E · Cuidar planta',
+  table: 'E · Mesa de voz',
+  frame: 'E · Ver cuadro',
+  cabinet: 'E · Abrir archivo',
+};
+
 export function furnitureRect(item: Furniture): Rect {
   const size: Record<FurnitureKind, [number, number]> = {
     desk: [69, 39], bookshelf: [45, 60], board: [66, 28], plant: [27, 27],
@@ -91,3 +111,24 @@ export function hitFurniture(house: PublicHouse, x: number, y: number): Furnitur
   }
   return null;
 }
+
+/**
+ * Finds the nearest furniture item within reach of the character (`maxDistance`
+ * from the furniture's bounding rectangle) so pressing E interacts with it.
+ */
+export function closestFurniture(position: Position, house: PublicHouse, maxDistance = 42): Furniture | null {
+  let closest: Furniture | null = null;
+  let best = maxDistance;
+  for (const item of house.furniture) {
+    const rect = furnitureRect(item);
+    const nx = Math.max(rect.x, Math.min(position.x, rect.x + rect.w));
+    const ny = Math.max(rect.y, Math.min(position.y, rect.y + rect.h));
+    const dist = Math.hypot(position.x - nx, position.y - ny);
+    if (dist <= best) {
+      best = dist;
+      closest = item;
+    }
+  }
+  return closest;
+}
+

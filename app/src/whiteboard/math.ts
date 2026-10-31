@@ -59,6 +59,11 @@ const cache = new Map<string, Entry>();
 /** Most recent ready image per formula at any resolution, shown while a sharper one loads. */
 const fallback = new Map<string, MathImage>();
 const MAX_CACHE = 300;
+let mathGeneration = 0;
+
+export function getMathGeneration(): number {
+  return mathGeneration;
+}
 
 /**
  * Rasterisation steps. Formulas are drawn into the canvas as images, so they
@@ -85,8 +90,8 @@ export function mathImage(tex: string, sizePx: number, color: string, display = 
     if (cache.size >= MAX_CACHE) cache.delete(cache.keys().next().value as string);
     cache.set(key, { state: 'loading' });
     void render(tex, sizePx, color, display, raster).then(
-      (value) => { cache.set(key, { state: 'ready', value }); fallback.set(base, value); },
-      (error: unknown) => cache.set(key, { state: 'error', message: error instanceof Error ? error.message : 'TeX' }),
+      (value) => { cache.set(key, { state: 'ready', value }); fallback.set(base, value); mathGeneration++; },
+      (error: unknown) => { cache.set(key, { state: 'error', message: error instanceof Error ? error.message : 'TeX' }); mathGeneration++; },
     );
   }
   return fallback.get(base) ?? null;

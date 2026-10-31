@@ -1,0 +1,1119 @@
+# MASTER IMPLEMENTATION PROMPT — MULTIPLAYER PIXEL-ART WORLD EXPANSION
+
+## ROLE AND PRIMARY MISSION
+
+You are acting as a principal software architect, senior full-stack engineer, multiplayer systems engineer, game designer, UI/UX specialist, and security engineer.
+
+Your assignment is to analyze, extend, improve, and implement major new features in my existing multiplayer pixel-art virtual neighborhood application.
+
+This is an **implementation task, not merely a brainstorming or planning exercise**.
+
+You must inspect the existing repository, understand the current architecture and functionality, design a compatible implementation, and then write, integrate, test, and refine the necessary code.
+
+The final result should feel like a polished, cohesive multiplayer virtual world where up to six friends can socialize, play games, study, collaborate on projects, customize their environments, and optionally use a locally hosted AI.
+
+**Non-negotiable rule: Preserve existing working functionality. Improve it, then extend it. Do not unnecessarily rewrite the application.**
+
+---
+
+# PART 1 — COMPLETE REPOSITORY RECONNAISSANCE
+
+Before changing anything, carefully explore the project.
+
+Inspect all relevant files and directories, including:
+
+- Application entry points and routing.
+- Existing rendering engine and game loop.
+- Player controllers, movement, collisions, and animations.
+- Multiplayer network architecture.
+- Host/client permissions and session lifecycle.
+- Neighborhood and house positioning.
+- Existing game objects and interaction mechanisms.
+- Current sprites, spritesheets, animations, and asset pipelines.
+- UI components, menus, overlays, modals, and transitions.
+- Existing project/code editor implementations.
+- Database and persistence mechanisms.
+- Build configuration and deployment environment.
+- Existing security boundaries and tests.
+
+Create or update a development document named `IMPLEMENTATION_PLAN.md` explaining:
+
+1. What already exists.
+2. What works and must be preserved.
+3. What is incomplete or broken.
+4. What systems can be reused.
+5. Which architectural components must be added.
+6. Dependencies between features.
+7. Testing requirements.
+8. A step-by-step implementation roadmap.
+
+Do not make speculative assumptions about the technology stack. Inspect the actual files.
+
+Do not replace working architecture merely because another framework is more familiar.
+
+Implement the new functionality incrementally and maintain a working application between major phases.
+
+---
+
+# PART 2 — WORLD STRUCTURE: DISTINCT AREAS
+
+The neighborhood should no longer feel like a single space containing unrelated interactive objects.
+
+Organize the world into distinct functional areas while preserving the existing neighborhood identity.
+
+## 2.1 Residential Area
+
+Each player retains a personal house.
+
+The neighborhood supports a maximum of six players, consistent with the existing design.
+
+Houses should preserve the established deterministic positioning/order system rather than being randomly generated.
+
+Players should be able to:
+
+- Enter and leave houses.
+- Customize appropriate interior objects.
+- Interact with furniture.
+- Place compatible interactive objects.
+- Invite friends inside.
+- Use personal whiteboards, notes, and project stations.
+- Configure object-specific access permissions.
+
+Keep interactions natural and visually integrated.
+
+## 2.2 Central Community Area
+
+**Every neighborhood must have its own shared community area.**
+
+This is a particularly important requirement.
+
+It should be visually distinct from the residential area and act as the social center of that specific neighborhood.
+
+This central area should contain interactive stations or destinations for:
+
+- Werewolves / Loup-Garou.
+- Gartic Phone.
+- Other multiplayer minigames.
+- Shared collaborative whiteboards.
+- Group study sessions.
+- Shared project workstations.
+- Community events.
+
+Games should be launched by approaching or interacting with an in-world station, not exclusively through a generic web-style menu.
+
+For example:
+
+- A campfire or round table launches Werewolves.
+- A drawing table launches Gartic Phone.
+- An arcade cabinet opens additional games.
+- A large board opens a community whiteboard.
+- A computer station opens collaborative projects.
+
+The community area belongs to the neighborhood session. Do not automatically merge all neighborhoods into a global room.
+
+Implement clear transitions between residential and community areas.
+
+Do not introduce unnecessary loading screens or disorienting teleportation.
+
+## 2.3 Creative and Study Area
+
+Create a dedicated or visually recognizable area for productivity and learning activities.
+
+It may be a separate room, library, workshop, or study corner connected to the community area, depending on the existing architecture.
+
+Its functionality includes:
+
+- Collaborative whiteboards.
+- Independent notes.
+- Flashcards.
+- Collaborative coding projects.
+- Optional local AI study tools.
+- Shared learning sessions.
+
+The goal is to make studying and creating feel like part of the multiplayer world.
+
+## 2.4 Area Architecture
+
+Represent areas using reusable world/scene definitions rather than hardcoding special behavior throughout the entire application.
+
+Each area should support:
+
+- Unique area identifier.
+- Display name.
+- Tilemap or scene data.
+- Environmental settings.
+- Spawn and exit positions.
+- Interactive object references.
+- Connected destinations.
+- Player occupancy.
+- Access rules.
+- Area-specific ambience.
+
+Players inside the same relevant area should observe consistent shared state.
+
+Players in different areas should not experience incorrect interaction events or visual synchronization artifacts.
+
+Choose between seamless movement and scene transitions based on the existing engine's capabilities.
+
+---
+
+# PART 3 — EXTENSIBLE INTERACTIVE OBJECT SYSTEM
+
+Build or extend a universal interactive object architecture.
+
+Do not independently hardcode every type of object when a shared abstraction is appropriate.
+
+Each object should have:
+
+- Stable unique identifier.
+- Object type.
+- Editable display name.
+- Sprite or spritesheet reference.
+- Optional animation definitions.
+- World position and layer.
+- Collision information.
+- Interaction region.
+- Ownership.
+- Visibility settings.
+- Permissions.
+- Persistent state.
+- Behavior/component configuration.
+- Serialization and validation rules.
+
+Support custom sprite assignment to compatible objects.
+
+Players should be able to rename objects where appropriate.
+
+Examples include:
+
+- Whiteboards.
+- Computers.
+- Drawing tables.
+- Arcade machines.
+- Bookshelves.
+- Lamps.
+- Televisions.
+- Project stations.
+- Study desks.
+
+Sprite assignment must not grant permission to change an object's executable behavior.
+
+Treat sprites, names, and configuration data as untrusted input. Validate uploads, file formats, size limits, paths, and metadata.
+
+Do not allow arbitrary executable scripts inside object definitions.
+
+Create a clean object editor that feels native to the pixel-art interface.
+
+---
+
+# PART 4 — MULTIPLAYER WHITEBOARD SYSTEM
+
+Implement a complete collaborative whiteboard system.
+
+**Every whiteboard must be an independent persistent object.**
+
+Creating or editing one whiteboard must never accidentally overwrite another.
+
+## Required Features
+
+- Create multiple whiteboards.
+- Rename each whiteboard.
+- Assign a custom sprite to its in-world representation.
+- Draw freehand.
+- Erase.
+- Insert text.
+- Use shapes, arrows, and colors.
+- Select, move, resize, and delete elements.
+- Undo and redo with collaborative consistency.
+- Save and reload content.
+- Support simultaneous editing.
+- Show other participants' cursors when useful.
+- Respect object-level viewing and editing permissions.
+
+Whiteboards must use stable IDs, not merely their display names, to identify stored content.
+
+Implement concurrency control using a suitable collaboration architecture such as CRDTs or another established mechanism appropriate to the repository.
+
+Handle disconnects, reconnection, conflicting edits, and persistence.
+
+Do not require the entire board to be resent after every tiny action if incremental synchronization is available.
+
+Optimize drawing performance and large-board rendering.
+
+---
+
+# PART 5 — WEREWOLVES / LOUP-GAROU
+
+Implement a fully playable multiplayer social deduction game.
+
+The game must work within the neighborhood community area.
+
+## Minimum Game Flow
+
+1. Players approach the Werewolves station.
+2. A game lobby opens.
+3. Participants join.
+4. The game leader selects compatible settings.
+5. Roles are assigned secretly.
+6. The night phase begins.
+7. Authorized roles perform their night actions.
+8. The server/authoritative controller resolves actions.
+9. The day phase begins.
+10. Players discuss and vote.
+11. Eliminations are resolved.
+12. Victory conditions are checked.
+13. The game continues or ends with a results screen.
+
+Support appropriate classic roles such as villagers, werewolves, seer, witch, and other roles only where their rules are correctly implemented.
+
+Because the neighborhood has at most six players, carefully design and validate role configurations for small groups.
+
+Do not assume roles or combinations suitable for large games automatically work with three to six participants.
+
+If there are insufficient players, provide a useful explanation or an explicitly designed small-group variant.
+
+Required technical properties:
+
+- Secret roles must never leak to unauthorized clients.
+- Night actions must be private.
+- Players cannot vote multiple times.
+- Game rules must be deterministic and testable.
+- Disconnect and reconnect behavior must be defined.
+- Eliminated players must not influence the game through hidden information.
+- Results and role reveals happen only at the correct phase.
+
+Create attractive day/night phase transitions, appropriate sound cues, subtle animations, and a polished interface.
+
+Avoid cloning proprietary visual assets from existing games.
+
+---
+
+# PART 6 — GARTIC PHONE–STYLE GAME
+
+Implement an original multiplayer drawing-and-guessing telephone game inspired by the general drawing telephone format.
+
+It must be a complete, playable minigame, not just a drawing canvas.
+
+Create original visuals, branding, UI, and assets.
+
+## 6.1 Core Loop
+
+The game should support a repeating chain of writing and drawing.
+
+Example:
+
+1. Every player writes a starting sentence.
+2. The sentence passes to another player.
+3. The next player draws that sentence.
+4. The drawing passes to another player.
+5. The next player writes what they believe the drawing represents.
+6. The process repeats for the configured number of rounds.
+7. Everyone views the evolution of each chain in the final reveal.
+
+Players should receive different chains according to a valid assignment algorithm.
+
+A participant must not accidentally receive the same chain at an incorrect stage or see hidden earlier content.
+
+## 6.2 Multiplayer Lobby
+
+Include:
+
+- Join and leave controls.
+- Host-managed game start.
+- Player readiness.
+- Participant count.
+- Countdown.
+- Round duration settings.
+- Game mode selection.
+
+Make the game usable with the neighborhood's small maximum player count.
+
+## 6.3 Drawing Tools
+
+Implement:
+
+- Adjustable brush size.
+- Color palette.
+- Eraser.
+- Undo and redo.
+- Clear canvas with confirmation.
+- Mouse or pointer drawing.
+- Correct coordinate mapping under different viewport sizes.
+- Responsive drawing surface.
+
+Optional advanced tools may include fill, shapes, and zoom if compatible with the architecture.
+
+## 6.4 Game Modes
+
+Implement a reliable classic mode first.
+
+Then, if supported cleanly, provide modes such as:
+
+- Fast rounds.
+- Extended drawing time.
+- Collaborative theme prompts.
+- Custom prompts.
+- Randomized sentence generation.
+
+Do not invent AI dependencies for basic gameplay.
+
+## 6.5 Reveal Phase
+
+The reveal phase should be one of the most polished parts of the experience.
+
+Display each chain in sequence:
+
+Original sentence → drawing → interpretation → drawing → final interpretation.
+
+Allow participants to react using simple non-disruptive reactions.
+
+Use attractive transitions that suit the pixel-art visual identity.
+
+## 6.6 Persistence and Security
+
+Game state must be authoritative and validated.
+
+Enforce participant ownership and phase permissions.
+
+Prevent unauthorized access to future prompts, other participants' private inputs, and unrevealed chains.
+
+Limit input sizes and drawing payloads.
+
+Handle disconnections.
+
+Store results only according to explicit retention settings. Avoid storing private drawings or notes indefinitely by default.
+
+---
+
+# PART 7 — ENVIRONMENTAL EVENTS AND ATMOSPHERE
+
+Implement a coherent environmental ambience system.
+
+These are not superficial decorations. They should make the world feel alive.
+
+## 7.1 Day/Night Cycle
+
+Support smooth transitions between:
+
+- Morning.
+- Afternoon.
+- Sunset.
+- Evening.
+- Night.
+
+Lighting should change naturally.
+
+Examples:
+
+- Warm windows after sunset.
+- Softer exterior colors in the evening.
+- Streetlights turning on at night.
+- Slight ambient color shifts.
+- Interior lighting remaining readable.
+
+Do not merely place a heavy dark overlay over the entire game.
+
+Preserve contrast and visibility.
+
+## 7.2 Weather
+
+Implement suitable weather events:
+
+- Clear skies.
+- Light rain.
+- Heavy rain when appropriate.
+- Cloudy ambience.
+- Optional fog.
+- Optional seasonal effects.
+
+Weather may be randomly generated or controlled by the host.
+
+The host should be able to disable it.
+
+Weather should be synchronized across players who share the affected area.
+
+## 7.3 Environmental Details
+
+Add subtle polish such as:
+
+- Animated foliage.
+- Small ambient particles.
+- Lamp glow.
+- Rain hitting surfaces.
+- Water reflections where feasible.
+- Gentle ambient effects.
+- Weather-specific sound loops.
+- Smooth lighting transitions.
+
+Respect accessibility and performance.
+
+Implement reduced-motion options, volume controls, effect-quality settings, and a way to disable costly effects.
+
+The system must remain performant with six connected players.
+
+## 7.4 Environmental Architecture
+
+Environmental state should be represented consistently.
+
+Possible fields:
+
+- Current time-of-day phase.
+- Weather type.
+- Transition progress.
+- Effect intensity.
+- Ambient audio configuration.
+- Quality setting.
+
+Do not send every individual particle over the network.
+
+Synchronize shared environmental parameters and let clients render particles locally.
+
+---
+
+# PART 8 — COLLABORATIVE PROJECTS: A SHARED VS CODE–LIKE WORKSPACE
+
+Implement or enhance the existing project system as a serious collaborative programming environment.
+
+The experience should resemble a functional shared code editor, not a decorative mockup.
+
+## Core Functionality
+
+- Project creation and renaming.
+- File and folder explorer.
+- Multiple files and tabs.
+- Syntax highlighting.
+- Concurrent editing.
+- Participant cursors.
+- Unsaved-change indicators.
+- Project permissions.
+- Collaboration presence.
+- Persistent project storage.
+- Conflict-safe synchronization.
+- Error reporting.
+- Project-specific settings.
+
+Use suitable existing editor technology, such as Monaco, if compatible.
+
+Do not unnecessarily recreate a code editor from scratch.
+
+## Host-Authorized Execution
+
+A collaborator may propose execution of a command, compilation, or test.
+
+However, **the host computer must never execute code merely because a remote participant requested it.**
+
+Required workflow:
+
+1. A participant requests execution.
+2. The host receives an explicit approval request.
+3. The host can inspect the exact command, relevant working directory, execution environment, and proposed project revision.
+4. The host approves or denies the request.
+5. If approved, the command runs in a restricted execution environment.
+6. Output is streamed back according to project permissions.
+7. The host can interrupt or terminate execution.
+
+Permission must be scoped and revocable.
+
+Do not silently convert one approval into unrestricted remote shell access.
+
+## Security Requirements
+
+Use an isolated sandbox or container appropriate for the host operating system.
+
+Limit:
+
+- Filesystem access.
+- CPU usage.
+- Memory usage.
+- Execution time.
+- Process creation.
+- Network access.
+- Environment variables.
+- Sensitive host directories.
+
+Do not mount the host's home directory or secrets into the sandbox.
+
+Treat build scripts, project configuration, dependencies, and compiler invocations as potentially executable code.
+
+A project should not be able to escape the approved workspace.
+
+An approval request must not be susceptible to a time-of-check/time-of-use substitution: execute exactly the reviewed revision and command.
+
+Never expose a generic unauthenticated remote shell endpoint.
+
+---
+
+# PART 9 — SECURE NOTES SYSTEM
+
+Implement a separate notes application integrated into the virtual world.
+
+This is not a code editor.
+
+It must not be able to execute code.
+
+## 9.1 Notes Features
+
+Users should be able to:
+
+- Create notes.
+- Rename notes.
+- Organize notes into folders or notebooks.
+- Edit note content.
+- Save automatically.
+- Search notes.
+- Use rich text or safe Markdown.
+- Add headings, lists, equations, and simple formatting.
+- Optionally attach supported safe resources.
+- Share notes with selected participants.
+- Control read and write permissions.
+- Create flashcards from selected notes.
+
+Notes should have independent IDs and persistent content.
+
+Support private and shared notes.
+
+## 9.2 Strict Non-Executable Model
+
+**Notes are untrusted documents, never executable instructions.**
+
+A note can contain source code as inert text, but opening or rendering it must never execute that code.
+
+Do not implement:
+
+- An integrated terminal in the notes application.
+- Code execution buttons.
+- Dynamic JavaScript execution.
+- Scriptable macros.
+- Executable note plugins.
+- Automatic shell commands.
+- HTML event handlers.
+- Unrestricted HTML rendering.
+- Hidden execution through Markdown extensions.
+
+Use a safe rendering pipeline.
+
+Prefer Markdown parsing with strict sanitization and a restricted component allowlist.
+
+Disable unsafe raw HTML.
+
+Apply strict URL and attachment handling.
+
+Never rely solely on client-side sanitization.
+
+Use a restrictive Content Security Policy and appropriate server-side validation.
+
+Protect against stored XSS, malicious links, path traversal, unauthorized file access, and unsafe attachment processing.
+
+## 9.3 Separation from Projects
+
+Notes and projects must have separate security models.
+
+A note must never inherit the privileges of the coding environment.
+
+Opening a note must not trigger project compilation.
+
+AI processing of a note must not invoke executable project tools.
+
+Converting a note into flashcards is a data transformation, not a code execution workflow.
+
+---
+
+# PART 10 — OPTIONAL LOCAL OLLAMA INTEGRATION
+
+This section is especially important.
+
+I want Gemini to **investigate, design, and implement a safe optional local AI integration using Ollama**, subject to the actual capabilities of the existing architecture.
+
+Ollama must run on the host's own machine.
+
+It must not require paid APIs or external cloud inference.
+
+It must not become a mandatory dependency for playing the game.
+
+The application must continue to function normally when Ollama is absent, stopped, or unavailable.
+
+## 10.1 Research and Feasibility Phase
+
+Before coding the integration, inspect the repository and host/client communication model.
+
+Determine:
+
+1. Whether there is a native desktop process, browser-only client, local backend, or existing host bridge.
+2. How the host currently exposes local services, if at all.
+3. How optional local inference can be reached safely.
+4. Whether an Ollama HTTP integration or an existing compatible library is preferable.
+5. How host-only inference can be shared with authorized multiplayer participants.
+6. How to prevent arbitrary access to the host's local AI endpoint.
+7. How to handle model availability, startup failures, timeouts, and slow inference.
+8. What privacy and access-control guarantees can actually be enforced.
+
+Research the currently documented Ollama APIs and supported structured-output mechanisms before committing to a design.
+
+Record architectural decisions in `OLLAMA_INTEGRATION_DESIGN.md`.
+
+Do not assume that a remote browser can directly contact a local host service.
+
+Do not expose Ollama's local API directly to the public internet.
+
+## 10.2 Host-Side AI Gateway
+
+Implement a dedicated host-controlled AI gateway or integrate these responsibilities into an existing trusted host process.
+
+The gateway should:
+
+- Communicate with the local Ollama service.
+- Validate all incoming AI requests.
+- Enforce authenticated session permissions.
+- Enforce host-controlled feature access.
+- Restrict requests to explicitly allowed AI operations.
+- Limit request size.
+- Limit concurrent inference jobs.
+- Enforce timeouts.
+- Support cancellation.
+- Prevent unauthorized model management operations.
+- Avoid arbitrary filesystem access.
+- Return validated structured results.
+
+Remote participants must not be allowed to submit arbitrary requests to Ollama's unrestricted API.
+
+Do not accept arbitrary model parameters, system prompts, tools, or endpoint paths from remote clients.
+
+If the project has no trusted native host process or suitable secure local bridge, identify the limitation and implement only the safe parts until such a bridge exists.
+
+Use secure, authenticated application messaging to route approved requests through the host.
+
+## 10.3 Optional Setup
+
+Create a user-friendly settings interface.
+
+Example:
+
+**Local AI**
+
+- Enable local AI.
+- Detect Ollama installation.
+- Check whether the service is running.
+- Select an installed model.
+- Test model availability.
+- Limit concurrent requests.
+- Configure allowed AI features.
+- Enable or disable shared AI access.
+
+Do not download models silently.
+
+Provide a clear message when a selected model is missing.
+
+The host must knowingly enable shared AI usage.
+
+Include a clear way to turn it off immediately.
+
+## 10.4 Flashcard Generation
+
+Implement a local AI feature that converts study material into flashcards.
+
+Example workflow:
+
+1. A player opens a note.
+2. They select text or choose the whole note.
+3. They click "Generate Flashcards".
+4. If AI is unavailable, the UI explains the limitation.
+5. If the AI is host-owned and the player is not the host, the request passes through authorized host-side controls.
+6. Ollama generates candidate flashcards.
+7. The response is validated.
+8. The user previews the generated cards.
+9. The user edits, removes, or regenerates cards.
+10. The user explicitly saves the deck.
+
+Support flashcards generated from:
+
+- Personal notes.
+- Shared notes with appropriate permissions.
+- Manually entered study topics.
+- Selected text.
+- Existing study material stored inside the application.
+
+## 10.5 Flashcard Structure
+
+Define a strict schema, for example:
+
+- Card ID.
+- Question.
+- Answer.
+- Optional hint.
+- Optional explanation.
+- Source reference.
+- Topic.
+- Difficulty.
+- Tags.
+
+Use structured model output where supported.
+
+Validate JSON structure and data types.
+
+Enforce length limits.
+
+Reject malformed responses safely.
+
+Do not blindly insert model-produced HTML into the interface.
+
+## 10.6 Educational Quality
+
+Generated cards should:
+
+- Be understandable without the original note when practical.
+- Test meaningful concepts.
+- Avoid trivial repetition.
+- Cover different parts of the source.
+- Distinguish definitions, understanding, and application.
+- Avoid inventing claims unsupported by the provided notes.
+- Preserve appropriate mathematical notation.
+- Admit uncertainty when source material is insufficient.
+
+The user must be able to edit cards before saving.
+
+For mathematical subjects, support safe rendering of equations and formulas without enabling executable extensions.
+
+## 10.7 Topic-Based Generation
+
+When generating from a topic rather than notes, distinguish between general model knowledge and user-provided sources.
+
+The AI should not pretend it has consulted course notes or documents it never received.
+
+Allow options for:
+
+- Number of cards.
+- Difficulty.
+- Language.
+- Question style.
+- Conceptual versus computational questions.
+
+## 10.8 Multiplayer Study Sessions
+
+Allow an authorized player to launch a flashcard session in the shared study area.
+
+A session should allow:
+
+- Joining.
+- Showing a question.
+- Revealing the answer.
+- Advancing to the next card.
+- Tracking progress.
+- Optional private self-assessment.
+- Restarting a session.
+
+A host or session leader controls progression where appropriate.
+
+Do not expose private note content to other players without explicit authorization.
+
+Generating a deck must not automatically make the source note or deck public.
+
+## 10.9 Additional Local AI Interactions
+
+Once flashcard generation is stable, design an extensible framework for optional AI capabilities such as:
+
+- Generating quizzes from notes.
+- Summarizing selected notes.
+- Explaining mathematical concepts.
+- Producing study questions.
+- Creating revision plans.
+- Suggesting discussion topics.
+- Generating original prompt ideas for drawing games.
+
+These should be distinct, explicitly allowed operations with well-defined input and output schemas.
+
+Do not create an autonomous local agent with broad tool permissions.
+
+The language model should generate content, not execute arbitrary actions.
+
+## 10.10 Prompt Injection and Data Security
+
+Treat both user notes and AI-generated results as untrusted data.
+
+A note may contain text that looks like an instruction to the AI. Such text must not override the application-level instruction defining the permitted task.
+
+Do not give the model:
+
+- Shell execution tools.
+- Unrestricted file-reading tools.
+- Secret credentials.
+- Access to other players' private documents.
+- Administrative application commands.
+
+Application authorization must be enforced outside the model.
+
+Do not depend on prompt wording alone for security.
+
+Prevent user-supplied text from changing the requested operation or accessing unrelated notes.
+
+Explicitly communicate that local Ollama inference still consumes the host's computing resources.
+
+Provide backpressure, limits, and cancellation so other players cannot overload the host machine.
+
+---
+
+# PART 11 — OTHER MINIGAMES AND EXTENSIBILITY
+
+Create a reusable minigame framework rather than building each game as an unrelated application.
+
+Each game should have:
+
+- Game type identifier.
+- Game instance identifier.
+- Lobby state.
+- Participants.
+- Host or authority.
+- Game settings.
+- Phase/state machine.
+- Permission rules.
+- Network events.
+- Cleanup lifecycle.
+- Disconnect behavior.
+- End-of-game handling.
+
+Support multiple games over time without rewriting multiplayer infrastructure.
+
+Prioritize Werewolves and Gartic Phone.
+
+Additional games such as Pictionary, trivia, or chess may be implemented afterward if the core systems are stable.
+
+Do not sacrifice implementation quality to add many unfinished game modes.
+
+---
+
+# PART 12 — VISUAL QUALITY AND INTERACTION DESIGN
+
+The visual design must be significantly improved while respecting the pixel-art identity.
+
+I do not want an interface that looks like generic AI-generated web software.
+
+Avoid excessive default-looking rounded buttons, disconnected floating panels, inconsistent shadows, and unnecessary gradients.
+
+Aim for:
+
+- Cohesive pixel-art direction.
+- Beautifully designed interactive stations.
+- Smooth character movement.
+- Responsive controls.
+- Well-timed animations.
+- Subtle interaction feedback.
+- Consistent interface typography.
+- Thoughtful spacing.
+- Readable game interfaces.
+- Attractive environmental lighting.
+- Meaningful transitions.
+- High-quality sprite consistency.
+
+The world should feel charming and carefully crafted.
+
+However, smoothness must not be sacrificed merely to make the animation technically pixelated.
+
+Use appropriate rendering interpolation, animation timing, and pixel-scaling strategies.
+
+Preserve crisp sprite visuals while avoiding visually unpleasant character movement.
+
+Make interactive objects discoverable through contextual prompts, visual feedback, or consistent interaction conventions.
+
+Test layouts at the viewport sizes the application supports.
+
+---
+
+# PART 13 — MULTIPLAYER RELIABILITY AND PERSISTENCE
+
+Ensure that all new systems respect multiplayer authority.
+
+Implement or reuse:
+
+- Authenticated participant identities.
+- Neighborhood session isolation.
+- State synchronization.
+- Host authority where required.
+- Reconnection logic.
+- Permission enforcement.
+- Persistent object identities.
+- Controlled event subscriptions.
+- Cleanup when players leave.
+- Validation of network messages.
+- Rate limiting.
+- Defensive error handling.
+
+The maximum number of players in one neighborhood remains six unless the existing project explicitly implements a different limit.
+
+Games and study tools should respect this constraint.
+
+Do not allow a client to impersonate the host by sending a forged event.
+
+Do not trust frontend role checks as the only source of authorization.
+
+Avoid memory leaks caused by outdated listeners, scene changes, timers, or abandoned game sessions.
+
+---
+
+# PART 14 — IMPLEMENTATION PHASES
+
+Execute the work in a dependency-aware order.
+
+## Phase A — Audit and Stabilization
+
+Inspect the entire project.
+
+Document the architecture.
+
+Fix critical issues blocking integration.
+
+Preserve current behavior.
+
+## Phase B — World and Shared Infrastructure
+
+Implement the distinct areas, central community space, scene transitions, and reusable interactive object system.
+
+## Phase C — Collaboration Tools
+
+Implement persistent whiteboards, secure notes, and their permission systems.
+
+## Phase D — Multiplayer Games
+
+Implement the reusable minigame infrastructure, Werewolves, and Gartic Phone with complete game loops.
+
+## Phase E — Collaborative Coding
+
+Upgrade the projects system into a shared code editor with host-authorized, sandboxed execution.
+
+## Phase F — Environmental Polish
+
+Integrate day/night cycles, weather, ambient effects, audio, and performance controls.
+
+## Phase G — Optional Local AI
+
+Research Ollama compatibility, implement the safe host-side bridge, build flashcard generation and study sessions, and add optional educational AI functions.
+
+## Phase H — Integration, Testing, and Refinement
+
+Perform end-to-end testing, optimize performance, resolve regressions, and refine the visual experience.
+
+These phases are guidelines, not excuses to leave required work incomplete.
+
+If dependency constraints justify a different order, document the reasoning.
+
+---
+
+# PART 15 — TESTING AND ACCEPTANCE CRITERIA
+
+Do not call a feature complete merely because its UI appears.
+
+Test actual behavior.
+
+At minimum, verify:
+
+**Neighborhood**
+
+- Six players can occupy the neighborhood without breaking existing behavior.
+- Each neighborhood has its own community area.
+- Movement between areas works.
+- Players observe consistent shared state.
+
+**Objects and Whiteboards**
+
+- Two boards can have different names, sprites, and contents.
+- Editing one board does not change the other.
+- Simultaneous edits synchronize.
+- Changes survive reloads.
+
+**Werewolves**
+
+- A complete valid small-group game can be played.
+- Secret roles remain private.
+- Every phase is enforced.
+- Victory conditions work correctly.
+
+**Gartic Phone**
+
+- Multiple players can complete the writing/drawing loop.
+- Chains are assigned correctly.
+- Drawing works with real pointer input.
+- Unrevealed content stays private.
+- Final reveals show the correct chronological sequence.
+
+**Notes**
+
+- Notes remain non-executable.
+- Unsafe HTML and scripts do not execute.
+- Unauthorized users cannot read private notes.
+- Separate notebooks remain independent.
+
+**Collaborative Projects**
+
+- Concurrent edits converge.
+- Unauthorized compilation is impossible.
+- Host approval is enforced by trusted code.
+- Execution is isolated and resource-limited.
+- Revoking permissions takes effect.
+
+**Ollama**
+
+- Application works without Ollama.
+- Host can explicitly enable local AI.
+- Remote users cannot bypass the AI gateway.
+- Flashcard generation returns validated cards.
+- Private notes are not disclosed without authorization.
+- AI-generated content cannot trigger code execution.
+- Slow or failed inference does not freeze the game.
+- The host can cancel or disable AI requests.
+
+**Environment**
+
+- Day/night transitions are smooth.
+- Weather synchronizes appropriately.
+- Effects can be disabled.
+- Performance remains acceptable.
+
+Use existing tests where possible and add new automated tests for critical state transitions, security boundaries, permissions, and serialization.
+
+Do not claim a test passed unless it was actually executed.
+
+---
+
+# PART 16 — HOW YOU MUST WORK
+
+You have substantial freedom to choose implementation details, but not to ignore requirements.
+
+Follow these operating rules:
+
+1. Inspect the real repository before making changes.
+2. Preserve established functionality, sprites, and architecture where feasible.
+3. Create a technical plan grounded in the existing code.
+4. Implement real functionality rather than mock screens.
+5. Work incrementally.
+6. Keep changes coherent and maintainable.
+7. Avoid introducing unnecessary dependencies.
+8. Validate all multiplayer inputs.
+9. Enforce security in trusted components, not only UI code.
+10. Write tests for fragile or security-sensitive functionality.
+11. Run available build, type-check, and test commands.
+12. Fix issues discovered by those checks.
+13. Record meaningful architectural decisions.
+14. Do not falsely report completion of unfinished features.
+15. Prioritize working end-to-end experiences over superficial feature counts.
+
+Whenever a feature depends on an unavailable system capability, identify the exact limitation and implement the most useful safe subset rather than pretending the feature works.
+
+When working on Ollama, distinguish clearly between research conclusions, implemented components, and functionality verified through actual local inference.
+
+Do not silently enable remote access, model downloads, terminal execution, or private document sharing.
+
+---
+
+# FINAL EXPECTED RESULT
+
+I want the existing project to evolve into a polished, multiplayer pixel-art social and productivity environment.
+
+Each neighborhood has personal houses and a shared community area.
+
+Friends can gather to play Werewolves and Gartic Phone, draw on independent personalized whiteboards, write secure notes, collaborate on real coding projects, and study together.
+
+The world has atmospheric lighting, weather, and coherent interactive objects.
+
+The host may optionally enable Ollama locally to generate educational flashcards and other safe structured study content.
+
+All of these experiences must feel like parts of one connected world.
+
+**Start by inspecting the repository. Then create the implementation plan and begin making real, tested changes. Do not stop at describing the solution.**

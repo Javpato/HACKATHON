@@ -21,9 +21,11 @@ export const COLORS = {
   sand: '#e0c08a', coral: '#c25f3c', peach: '#f6b265', shadow: '#24402f',
 };
 
-export const UNIT = 2;
+import { getAvatarCustomization } from '../assets/custom-assets';
 
-/** Snap to the virtual pixel grid so every edge lands on the same lattice. */
+export const UNIT = 1;
+
+/** Snap to the virtual pixel grid so every edge lands on a sharp boundary. */
 export function ipx(value: number): number {
   return Math.round(value / UNIT) * UNIT;
 }
@@ -41,9 +43,9 @@ export function fillRaw(ctx: CanvasRenderingContext2D, color: string, x: number,
 
 export function text(ctx: CanvasRenderingContext2D, label: string, x: number, y: number, color = COLORS.ink, size = 11, align: CanvasTextAlign = 'center'): void {
   ctx.fillStyle = color;
-  ctx.font = `700 ${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.font = `700 ${size}px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif`;
   ctx.textAlign = align;
-  ctx.fillText(label, Math.round(x), Math.round(y), 180);
+  ctx.fillText(label, x, y, 200);
 }
 
 export function seed(x: number, y: number): number {
@@ -275,9 +277,12 @@ export function shade(hex: string, amount: number): string {
 export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, identity: PublicIdentity, position: Position, isOwn = false): void {
   const id = identity.fingerprint || identity.displayName;
   const state = anims.get(id);
+  const custom = isOwn ? getAvatarCustomization() : null;
   const tone = hash01(id + 'skin');
-  const skin = SKIN[Math.floor(tone * SKIN.length) % SKIN.length];
-  const hair = HAIR[Math.floor(hash01(id + 'hair') * HAIR.length) % HAIR.length];
+  const skin = custom?.skinTone || SKIN[Math.floor(tone * SKIN.length) % SKIN.length];
+  const hair = custom?.hairColor || HAIR[Math.floor(hash01(id + 'hair') * HAIR.length) % HAIR.length];
+  const hairStyle = custom?.hairStyle || 'short';
+  const accessory = custom?.accessory || 'none';
   const shirt = identity.color || COLORS.coral;
   const shirtLit = shade(shirt, 26);
   const shirtDark = shade(shirt, -42);
@@ -324,38 +329,68 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   // Arms track the opposite phase of the legs.
   if (facing === 'left' || facing === 'right') {
     const lead = facing === 'right' ? 1 : -1;
-    fill(ctx, shirtDark, (facing === 'right' ? 5 : -9) , torsoY + 3 - swing * lead, 4, 9);
+    fill(ctx, shirtDark, (facing === 'right' ? 5 : -9), torsoY + 3 - swing * lead, 4, 9);
   } else {
     fill(ctx, shirtDark, -11, torsoY + 3 + swing, 4, 9);
     fill(ctx, shirtDark, 7, torsoY + 3 - swing, 4, 9);
   }
 
-  // Head, hair and a simple face. The hair is a cap across the top rows only,
-  // so several rows of face remain visible and the eyes are never buried.
+  // Head, hair and a simple face.
   const headY = torsoY - 10;
   fill(ctx, shade(skin, -40), -7, headY, 14, 12);
   fill(ctx, skin, -7, headY, 12, 11);
   fill(ctx, shade(skin, 18), -7, headY + 2, 4, 5);
   if (facing === 'up') {
     // Facing away: the back of the head is all hair.
-    fill(ctx, hair, -7, headY - 2, 14, 12);
+    fill(ctx, hair, -7, headY - 2, 14, hairStyle === 'long' ? 15 : 12);
     fill(ctx, shade(hair, 18), -7, headY - 2, 14, 3);
   } else {
     fill(ctx, hair, -8, headY - 3, 15, 6);
     fill(ctx, shade(hair, 16), -8, headY - 3, 15, 2);
+    if (hairStyle === 'spiky') {
+      fill(ctx, hair, -7, headY - 6, 3, 3);
+      fill(ctx, hair, -2, headY - 7, 4, 4);
+      fill(ctx, hair, 3, headY - 6, 3, 3);
+    } else if (hairStyle === 'curly') {
+      fill(ctx, hair, -9, headY - 4, 17, 6);
+      fill(ctx, shade(hair, 20), -8, headY - 5, 5, 3);
+      fill(ctx, shade(hair, 20), 1, headY - 5, 5, 3);
+    } else if (hairStyle === 'beanie') {
+      fill(ctx, '#c9604a', -8, headY - 5, 16, 6);
+      fill(ctx, '#e2886f', -8, headY - 2, 16, 2);
+      fill(ctx, '#f4efdd', -2, headY - 7, 4, 2);
+    }
     if (facing === 'down') {
-      fill(ctx, hair, -8, headY - 3, 3, 9);
-      fill(ctx, hair, 4, headY - 3, 3, 9);
+      const sideLen = hairStyle === 'long' ? 13 : 9;
+      fill(ctx, hair, -8, headY - 3, 3, sideLen);
+      fill(ctx, hair, 4, headY - 3, 3, sideLen);
       fill(ctx, '#2b2b26', -4, headY + 5, 2, 2);
       fill(ctx, '#2b2b26', 2, headY + 5, 2, 2);
       fill(ctx, shade(skin, -30), -1, headY + 8, 3, 1);
     } else if (facing === 'left') {
-      fill(ctx, hair, -8, headY - 3, 4, 10);
+      fill(ctx, hair, -8, headY - 3, 4, hairStyle === 'long' ? 13 : 10);
       fill(ctx, '#2b2b26', -4, headY + 5, 2, 2);
     } else {
-      fill(ctx, hair, 3, headY - 3, 4, 10);
+      fill(ctx, hair, 3, headY - 3, 4, hairStyle === 'long' ? 13 : 10);
       fill(ctx, '#2b2b26', 2, headY + 5, 2, 2);
     }
+  }
+
+  // Optional accessories
+  if (accessory === 'glasses' && facing !== 'up') {
+    fill(ctx, '#1e3028', -5, headY + 4, 4, 3);
+    fill(ctx, '#1e3028', 1, headY + 4, 4, 3);
+    fill(ctx, '#9cc8d2', -4, headY + 5, 2, 1);
+    fill(ctx, '#9cc8d2', 2, headY + 5, 2, 1);
+    fill(ctx, '#1e3028', -1, headY + 5, 2, 1);
+  } else if (accessory === 'headphones') {
+    fill(ctx, '#2d4b3e', -9, headY - 4, 18, 2);
+    fill(ctx, '#cf6f3c', -10, headY + 1, 3, 6);
+    fill(ctx, '#cf6f3c', 7, headY + 1, 3, 6);
+  } else if (accessory === 'hat') {
+    fill(ctx, '#5a3e28', -10, headY - 3, 20, 2);
+    fill(ctx, '#7a563a', -7, headY - 7, 14, 4);
+    fill(ctx, '#cf6f3c', -7, headY - 4, 14, 1);
   }
 
   if (isOwn) {
@@ -369,10 +404,10 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   ctx.restore();
 
   const name = identity.displayName.slice(0, 18);
-  ctx.font = '700 9px ui-monospace, SFMono-Regular, Menlo, monospace';
-  const width = Math.min(140, Math.ceil(ctx.measureText(name).width) + 18);
+  ctx.font = '700 9.5px Inter, ui-sans-serif, system-ui, sans-serif';
+  const width = Math.min(145, Math.ceil(ctx.measureText(name).width) + 18);
   const plateY = baseY - 44;
-  plate(ctx, x - width / 2, plateY, width, 15, 'rgba(251,244,226,0.95)', 'rgba(30,55,48,0.5)');
+  plate(ctx, x - width / 2, plateY, width, 15, 'rgba(251,244,226,0.96)', 'rgba(30,55,48,0.55)');
   fill(ctx, shirt, x - width / 2 + 5, plateY + 5, 5, 5);
   ctx.textAlign = 'left';
   ctx.fillStyle = COLORS.ink;
@@ -435,7 +470,7 @@ export function drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, sc
  */
 export function drawPrompt(ctx: CanvasRenderingContext2D, x: number, y: number, label: string): void {
   const bob = reducedMotion() ? 0 : Math.round(Math.sin(frameClock * 4) * 1.5);
-  ctx.font = '700 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.font = '700 9.5px Inter, ui-sans-serif, system-ui, sans-serif';
   const w = Math.ceil(ctx.measureText(label).width) + 16;
   const px = Math.round(x - w / 2);
   const py = Math.round(y) + bob;

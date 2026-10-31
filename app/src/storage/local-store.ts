@@ -69,6 +69,12 @@ export async function openLocalStore(): Promise<LocalStore> {
   return {
     kind: 'indexeddb',
     async load() {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const syncRaw = localStorage.getItem('studyvillage-local-sync');
+          if (syncRaw) return parseLocalData(JSON.parse(syncRaw));
+        }
+      } catch { /* Fall back to IndexedDB */ }
       return new Promise((resolve, reject) => {
         const tx = db.transaction('own-data', 'readonly');
         const request = tx.objectStore('own-data').get('state');
@@ -78,6 +84,11 @@ export async function openLocalStore(): Promise<LocalStore> {
     },
     async save(data) {
       const json = serializeLocalData(data);
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('studyvillage-local-sync', json);
+        }
+      } catch { /* Ignore quota errors in sync mirror */ }
       return new Promise<void>((resolve, reject) => {
         const tx = db.transaction('own-data', 'readwrite');
         tx.objectStore('own-data').put(json, 'state');
@@ -96,6 +107,9 @@ export class SaveQueue {
   constructor(private store: LocalStore, private onError: (error: unknown) => void) {}
   save(data: LocalData): Promise<void> {
     this.pending = parseLocalData(data);
+    if (this.store.kind === 'indexeddb' && typeof localStorage !== 'undefined') {
+      try { localStorage.setItem('studyvillage-local-sync', serializeLocalData(this.pending)); } catch {}
+    }
     if (!this.active) this.active = this.drain().finally(() => {
       this.active = null;
       if (this.pending) void this.save(this.pending);

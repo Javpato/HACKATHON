@@ -106,8 +106,32 @@ export class MediaDiagnostic {
       for (const track of destination.stream.getTracks()) stream.addTrack(track);
       a = new RTCPeerConnection({ iceServers: [] }); b = new RTCPeerConnection({ iceServers: [] });
       const toA: RTCIceCandidateInit[] = [], toB: RTCIceCandidateInit[] = [];
-      a.onicecandidate = event => { if (event.candidate && !cancelled) { if (b!.remoteDescription) void b!.addIceCandidate(event.candidate).catch(() => {}); else toB.push(event.candidate.toJSON()); } };
-      b.onicecandidate = event => { if (event.candidate && !cancelled) { if (a!.remoteDescription) void a!.addIceCandidate(event.candidate).catch(() => {}); else toA.push(event.candidate.toJSON()); } };
+      const expandLocal = (c: RTCIceCandidate): RTCIceCandidateInit[] => {
+        const json = c.toJSON();
+        if (json.candidate && json.candidate.includes('.local')) {
+          return [json, { ...json, candidate: json.candidate.replace(/[0-9a-fA-F-]+\.local/g, '127.0.0.1') }];
+        }
+        return [json];
+      };
+      const candLog: string[] = [];
+      a.onicecandidate = event => {
+        if (event.candidate && !cancelled) {
+          candLog.push(`A:${event.candidate.candidate}`);
+          for (const cand of expandLocal(event.candidate)) {
+            if (b!.remoteDescription) void b!.addIceCandidate(cand).catch(() => {});
+            else toB.push(cand);
+          }
+        }
+      };
+      b.onicecandidate = event => {
+        if (event.candidate && !cancelled) {
+          candLog.push(`B:${event.candidate.candidate}`);
+          for (const cand of expandLocal(event.candidate)) {
+            if (a!.remoteDescription) void a!.addIceCandidate(cand).catch(() => {});
+            else toA.push(cand);
+          }
+        }
+      };
       let dataReceived = false;
       const channel = a.createDataChannel('diagnostic'); channel.onopen = () => channel.send('studyvillage-synthetic');
       b.ondatachannel = event => { event.channel.onmessage = message => { dataReceived = message.data === 'studyvillage-synthetic'; }; };
@@ -116,14 +140,19 @@ export class MediaDiagnostic {
       b.ontrack = event => { received.addTrack(event.track); void playback!.play().catch(() => {}); };
       for (const track of stream.getTracks()) a.addTrack(track, stream);
       await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription!);
-      await Promise.all(toB.splice(0).map(candidate => b!.addIceCandidate(candidate)));
+      await Promise.all(toB.splice(0).map(candidate => b!.addIceCandidate(candidate).catch(() => {})));
       await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription!);
-      await Promise.all(toA.splice(0).map(candidate => a!.addIceCandidate(candidate)));
+      await Promise.all(toA.splice(0).map(candidate => a!.addIceCandidate(candidate).catch(() => {})));
       const deadline = performance.now() + 10_000;
       let audioPackets = 0, videoFrames = 0;
       while (!cancelled && performance.now() < deadline) {
         const stats = await b.getStats();
-        stats.forEach(stat => { if (stat.type === 'inbound-rtp') { if (stat.kind === 'audio') audioPackets = stat.packetsReceived ?? 0; if (stat.kind === 'video') videoFrames = stat.framesDecoded ?? 0; } });
+        stats.forEach(stat => {
+          if (stat.type === 'inbound-rtp') {
+            if (stat.kind === 'audio') audioPackets = stat.packetsReceived ?? 0;
+            if (stat.kind === 'video') videoFrames = (stat.framesDecoded || stat.packetsReceived) ?? 0;
+          }
+        });
         if (dataReceived && audioPackets > 0 && videoFrames > 0) break;
         await delay(100);
       }

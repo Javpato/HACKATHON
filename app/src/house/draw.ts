@@ -1,4 +1,5 @@
 import type { Furniture, PublicHouse } from '../protocol/types';
+import { getFurnitureCustomColor, getFurnitureCustomSprite } from '../assets/custom-assets';
 import {
   PALETTE, animClock, contactShadow, drawAvatar, fill, glowPool, hash01,
   ipx, paintSceneFade, plate, reducedMotion, seed, shade, text, trackCharacter,
@@ -230,116 +231,143 @@ function paintLampPool(ctx: CanvasRenderingContext2D, time: number): void {
   glowPool(ctx, 384, 250, 120 * breathe, '255,226,176');
 }
 
-function paintFurniture(ctx: CanvasRenderingContext2D, item: Furniture, selected: boolean, time: number): void {
+function paintFurniture(
+  ctx: CanvasRenderingContext2D,
+  item: Furniture,
+  selected: boolean,
+  nearby: boolean,
+  time: number,
+  perItemSprite?: HTMLImageElement | null,
+): void {
   const { x, y, w, h } = furnitureRect(item);
   const wall = item.kind === 'frame' || item.kind === 'board';
   if (!wall) contactShadow(ctx, x + w / 2, y + h - 1, w * 0.46, 0.32);
 
-  switch (item.kind) {
-    case 'desk': {
-      // Legs, apron, top with a lit front edge, monitor, lamp and papers.
-      fill(ctx, earth0, x + 5, y + 20, 6, h - 20);
-      fill(ctx, earth0, x + w - 11, y + 20, 6, h - 20);
-      fill(ctx, shade(earth1, -10), x + 2, y + 16, w - 4, 8);
-      fill(ctx, earth2, x, y + 10, w, 10);
-      fill(ctx, earth4, x, y + 10, w, 4);
-      fill(ctx, shade(earth2, -16), x, y + 19, w, 3);
-      fill(ctx, '#34504a', x + 14, y, 28, 14);
-      fill(ctx, '#1f3a38', x + 16, y + 2, 24, 10);
-      fill(ctx, '#7fc7c0', x + 17, y + 3, 22, 5);
-      fill(ctx, '#34504a', x + 25, y + 13, 6, 4);
-      fill(ctx, PALETTE.paper[4], x + 46, y + 4, 16, 7);
-      fill(ctx, shade(PALETTE.paper[4], -22), x + 46, y + 9, 16, 2);
-      fill(ctx, ember0, x + 6, y + 2, 4, 9);
-      fill(ctx, ember4, x + 3, y, 10, 4);
-      glowPool(ctx, x + 8, y + 16, 22);
-      break;
-    }
-    case 'bookshelf': {
-      fill(ctx, shade(earth0, -12), x, y, w, h);
-      fill(ctx, earth1, x + 3, y + 2, w - 6, h - 4);
-      fill(ctx, earth2, x + 3, y + 2, 3, h - 4);
-      for (let row = 0; row < 4; row += 1) {
-        const sy = y + 6 + row * 14;
-        fill(ctx, shade(earth0, -6), x + 4, sy + 11, w - 8, 3);
-        const count = 4 + Math.floor(seed(row, item.x) * 2);
-        for (let col = 0; col < count; col += 1) {
-          const n = seed(row * 7 + col, item.y);
-          const bh = 8 + Math.floor(n * 3);
-          const books = ['#c9604a', '#4b8f7e', '#d9a65c', '#7a6ba8', '#bf7f52'];
-          fill(ctx, books[(row + col) % books.length], x + 6 + col * 8, sy + 11 - bh, 6, bh);
-          fill(ctx, 'rgba(255,255,255,0.18)', x + 6 + col * 8, sy + 11 - bh, 6, 2);
+  const customSprite = perItemSprite || getFurnitureCustomSprite(item.kind);
+  const customColor = getFurnitureCustomColor(item.kind);
+  const baseEarth0 = customColor ? shade(customColor, -38) : earth0;
+  const baseEarth1 = customColor ? shade(customColor, -22) : earth1;
+  const baseEarth2 = customColor || earth2;
+  const baseEarth3 = customColor ? shade(customColor, 16) : earth3;
+  const baseEarth4 = customColor ? shade(customColor, 32) : earth4;
+
+  if (customSprite) {
+    ctx.drawImage(customSprite, ipx(x), ipx(y), ipx(w), ipx(h));
+  } else {
+    switch (item.kind) {
+      case 'desk': {
+        // Legs, apron, top with a lit front edge, monitor, lamp and papers.
+        fill(ctx, baseEarth0, x + 5, y + 20, 6, h - 20);
+        fill(ctx, baseEarth0, x + w - 11, y + 20, 6, h - 20);
+        fill(ctx, shade(baseEarth1, -10), x + 2, y + 16, w - 4, 8);
+        fill(ctx, baseEarth2, x, y + 10, w, 10);
+        fill(ctx, baseEarth4, x, y + 10, w, 4);
+        fill(ctx, shade(baseEarth2, -16), x, y + 19, w, 3);
+        fill(ctx, '#34504a', x + 14, y, 28, 14);
+        fill(ctx, '#1f3a38', x + 16, y + 2, 24, 10);
+        fill(ctx, '#7fc7c0', x + 17, y + 3, 22, 5);
+        fill(ctx, '#34504a', x + 25, y + 13, 6, 4);
+        fill(ctx, PALETTE.paper[4], x + 46, y + 4, 16, 7);
+        fill(ctx, shade(PALETTE.paper[4], -22), x + 46, y + 9, 16, 2);
+        fill(ctx, ember0, x + 6, y + 2, 4, 9);
+        fill(ctx, ember4, x + 3, y, 10, 4);
+        glowPool(ctx, x + 8, y + 16, 22);
+        break;
+      }
+      case 'bookshelf': {
+        fill(ctx, shade(baseEarth0, -12), x, y, w, h);
+        fill(ctx, baseEarth1, x + 3, y + 2, w - 6, h - 4);
+        fill(ctx, baseEarth2, x + 3, y + 2, 3, h - 4);
+        for (let row = 0; row < 4; row += 1) {
+          const sy = y + 6 + row * 14;
+          fill(ctx, shade(baseEarth0, -6), x + 4, sy + 11, w - 8, 3);
+          const count = 4 + Math.floor(seed(row, item.x) * 2);
+          for (let col = 0; col < count; col += 1) {
+            const n = seed(row * 7 + col, item.y);
+            const bh = 8 + Math.floor(n * 3);
+            const books = ['#c9604a', '#4b8f7e', '#d9a65c', '#7a6ba8', '#bf7f52'];
+            fill(ctx, books[(row + col) % books.length], x + 6 + col * 8, sy + 11 - bh, 6, bh);
+            fill(ctx, 'rgba(255,255,255,0.18)', x + 6 + col * 8, sy + 11 - bh, 6, 2);
+          }
         }
+        fill(ctx, moss2, x + w - 14, y + 2, 5, 7);
+        fill(ctx, moss4, x + w - 17, y, 10, 5);
+        break;
       }
-      fill(ctx, moss2, x + w - 14, y + 2, 5, 7);
-      fill(ctx, moss4, x + w - 17, y, 10, 5);
-      break;
-    }
-    case 'board': {
-      fill(ctx, shade(earth0, -10), x, y, w, h);
-      fill(ctx, earth2, x + 1, y + 1, w - 2, 3);
-      fill(ctx, '#f7f3e4', x + 4, y + 4, w - 8, h - 10);
-      fill(ctx, shade('#f7f3e4', -16), x + 4, y + h - 8, w - 8, 2);
-      fill(ctx, '#4b8f7e', x + 9, y + 9, 26, 3);
-      fill(ctx, '#c9604a', x + 9, y + 15, 36, 3);
-      fill(ctx, '#7a6ba8', x + 9, y + 20, 18, 2);
-      fill(ctx, earth1, x + 2, y + h - 5, w - 4, 4);
-      fill(ctx, ember4, x + w - 16, y + h - 4, 8, 2);
-      break;
-    }
-    case 'plant': {
-      fill(ctx, shade(earth1, -14), x + 5, y + 13, w - 10, h - 13);
-      fill(ctx, earth1, x + 5, y + 13, w - 13, h - 13);
-      fill(ctx, earth3, x + 3, y + 11, w - 6, 5);
-      fill(ctx, shade(earth1, -20), x + 5, y + h - 4, w - 10, 3);
-      const sway = Math.sin(time * 1.1 + hash01(item.id) * 6) * 1.2;
-      fill(ctx, moss1, x + 12, y + 2, 4, 12);
-      fill(ctx, moss2, x + 4 + sway, y + 3, 10, 7);
-      fill(ctx, moss4, x + 13 + sway, y - 1, 10, 8);
-      fill(ctx, moss4, x + 2 + sway, y, 8, 5);
-      fill(ctx, PALETTE.moss[5], x + 15 + sway, y - 2, 5, 3);
-      break;
-    }
-    case 'table': {
-      fill(ctx, earth0, x + 6, y + 22, 6, h - 22);
-      fill(ctx, earth0, x + w - 12, y + 22, 6, h - 22);
-      fill(ctx, shade(earth1, -12), x + 2, y + 18, w - 4, 7);
-      fill(ctx, earth2, x, y + 8, w, 12);
-      fill(ctx, earth4, x, y + 8, w, 4);
-      fill(ctx, shade(earth2, -18), x, y + 19, w, 3);
-      // A mug and a plate of something.
-      fill(ctx, '#f4efdd', x + 14, y + 2, 10, 8);
-      fill(ctx, '#d8d2bd', x + 14, y + 8, 10, 2);
-      fill(ctx, '#c9604a', x + 32, y + 4, 14, 6);
-      fill(ctx, ember4, x + 34, y + 2, 10, 3);
-      ctx.fillStyle = `rgba(255,255,255,${0.14 + Math.sin(time * 1.4) * 0.06})`;
-      ctx.fillRect(ipx(x + 18), ipx(y - 4), 2, 6);
-      break;
-    }
-    case 'frame': {
-      fill(ctx, shade(earth0, -8), x, y, w, h);
-      fill(ctx, earth2, x + 2, y + 2, w - 4, h - 4);
-      fill(ctx, PALETTE.paper[3], x + 4, y + 4, w - 8, h - 8);
-      fill(ctx, '#8fb79f', x + 6, y + 6, w - 12, h - 12);
-      fill(ctx, '#5d8f7c', x + 6, y + h - 12, w - 12, 6);
-      fill(ctx, ember4, x + 10, y + 8, 5, 5);
-      fill(ctx, 'rgba(255,255,255,0.22)', x + 4, y + 4, w - 8, 3);
-      break;
-    }
-    case 'cabinet': {
-      fill(ctx, shade(earth0, -10), x, y, w, h);
-      fill(ctx, earth1, x + 2, y + 2, w - 4, h - 4);
-      fill(ctx, earth2, x + 2, y + 2, w - 4, 4);
-      for (const dx of [6, w / 2 + 2]) {
-        fill(ctx, shade(earth2, -6), x + dx, y + 8, w / 2 - 8, h - 16);
-        fill(ctx, earth3, x + dx, y + 8, w / 2 - 8, 3);
-        fill(ctx, shade(earth0, -4), x + dx + 2, y + 14, w / 2 - 12, 2);
+      case 'board': {
+        fill(ctx, shade(baseEarth0, -10), x, y, w, h);
+        fill(ctx, baseEarth2, x + 1, y + 1, w - 2, 3);
+        fill(ctx, '#f7f3e4', x + 4, y + 4, w - 8, h - 10);
+        fill(ctx, shade('#f7f3e4', -16), x + 4, y + h - 8, w - 8, 2);
+        fill(ctx, '#4b8f7e', x + 9, y + 9, 26, 3);
+        fill(ctx, '#c9604a', x + 9, y + 15, 36, 3);
+        fill(ctx, '#7a6ba8', x + 9, y + 20, 18, 2);
+        fill(ctx, baseEarth1, x + 2, y + h - 5, w - 4, 4);
+        fill(ctx, ember4, x + w - 16, y + h - 4, 8, 2);
+        break;
       }
-      fill(ctx, ember4, x + w / 2 - 5, y + 22, 3, 4);
-      fill(ctx, ember4, x + w / 2 + 3, y + 22, 3, 4);
-      fill(ctx, earth3, x, y + h - 5, w, 4);
-      break;
+      case 'plant': {
+        fill(ctx, shade(baseEarth1, -14), x + 5, y + 13, w - 10, h - 13);
+        fill(ctx, baseEarth1, x + 5, y + 13, w - 13, h - 13);
+        fill(ctx, baseEarth3, x + 3, y + 11, w - 6, 5);
+        fill(ctx, shade(baseEarth1, -20), x + 5, y + h - 4, w - 10, 3);
+        const sway = Math.sin(time * 1.1 + hash01(item.id) * 6) * 1.2;
+        fill(ctx, moss1, x + 12, y + 2, 4, 12);
+        fill(ctx, moss2, x + 4 + sway, y + 3, 10, 7);
+        fill(ctx, moss4, x + 13 + sway, y - 1, 10, 8);
+        fill(ctx, moss4, x + 2 + sway, y, 8, 5);
+        fill(ctx, PALETTE.moss[5], x + 15 + sway, y - 2, 5, 3);
+        break;
+      }
+      case 'table': {
+        fill(ctx, baseEarth0, x + 6, y + 22, 6, h - 22);
+        fill(ctx, baseEarth0, x + w - 12, y + 22, 6, h - 22);
+        fill(ctx, shade(baseEarth1, -12), x + 2, y + 18, w - 4, 7);
+        fill(ctx, baseEarth2, x, y + 8, w, 12);
+        fill(ctx, baseEarth4, x, y + 8, w, 4);
+        fill(ctx, shade(baseEarth2, -18), x, y + 19, w, 3);
+        // A mug and a plate of something.
+        fill(ctx, '#f4efdd', x + 14, y + 2, 10, 8);
+        fill(ctx, '#d8d2bd', x + 14, y + 8, 10, 2);
+        fill(ctx, '#c9604a', x + 32, y + 4, 14, 6);
+        fill(ctx, ember4, x + 34, y + 2, 10, 3);
+        ctx.fillStyle = `rgba(255,255,255,${0.14 + Math.sin(time * 1.4) * 0.06})`;
+        ctx.fillRect(ipx(x + 18), ipx(y - 4), 2, 6);
+        break;
+      }
+      case 'frame': {
+        fill(ctx, shade(baseEarth0, -8), x, y, w, h);
+        fill(ctx, baseEarth2, x + 2, y + 2, w - 4, h - 4);
+        fill(ctx, PALETTE.paper[3], x + 4, y + 4, w - 8, h - 8);
+        fill(ctx, '#8fb79f', x + 6, y + 6, w - 12, h - 12);
+        fill(ctx, '#5d8f7c', x + 6, y + h - 12, w - 12, 6);
+        fill(ctx, ember4, x + 10, y + 8, 5, 5);
+        fill(ctx, 'rgba(255,255,255,0.22)', x + 4, y + 4, w - 8, 3);
+        break;
+      }
+      case 'cabinet': {
+        fill(ctx, shade(baseEarth0, -10), x, y, w, h);
+        fill(ctx, baseEarth1, x + 2, y + 2, w - 4, h - 4);
+        fill(ctx, baseEarth2, x + 2, y + 2, w - 4, 4);
+        for (const dx of [6, w / 2 + 2]) {
+          fill(ctx, shade(baseEarth2, -6), x + dx, y + 8, w / 2 - 8, h - 16);
+          fill(ctx, baseEarth3, x + dx, y + 8, w / 2 - 8, 3);
+          fill(ctx, shade(baseEarth0, -4), x + dx + 2, y + 14, w / 2 - 12, 2);
+        }
+        fill(ctx, ember4, x + w / 2 - 5, y + 22, 3, 4);
+        fill(ctx, ember4, x + w / 2 + 3, y + 22, 3, 4);
+        fill(ctx, baseEarth3, x, y + h - 5, w, 4);
+        break;
+      }
     }
+  }
+
+  if (nearby && !selected) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 224, 150, 0.9)';
+    ctx.lineWidth = 1.75;
+    ctx.strokeRect(ipx(x - 3), ipx(y - 3), ipx(w + 6), ipx(h + 6));
+    ctx.restore();
   }
 
   if (selected) {
@@ -358,11 +386,66 @@ function paintFurniture(ctx: CanvasRenderingContext2D, item: Furniture, selected
 
   if (item.publicAlias) {
     const label = item.publicAlias.slice(0, 24);
-    ctx.font = '700 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.font = '700 9px Inter, ui-sans-serif, system-ui, sans-serif';
     const width = Math.min(135, Math.ceil(ctx.measureText(label).width) + 16);
     plate(ctx, x + w / 2 - width / 2, y + h + 4, width, 15, 'rgba(251,244,226,0.95)', 'rgba(30,55,48,0.45)');
     text(ctx, label, x + w / 2, y + h + 15, PALETTE.paper[0], 9);
   }
+}
+
+let roomCache: HTMLCanvasElement | null = null;
+let roomCacheKey = '';
+let houseVignetteCache: HTMLCanvasElement | null = null;
+
+function getRoomShell(house: PublicHouse, room: Room): HTMLCanvasElement | null {
+  const key = house.theme;
+  if (roomCache && roomCacheKey === key) return roomCache;
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = document.createElement('canvas');
+  } catch {
+    return null;
+  }
+  canvas.width = W * 2;
+  canvas.height = H * 2;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.scale(2, 2);
+  ctx.imageSmoothingEnabled = false;
+  paintWall(ctx, room, 0);
+  paintFloor(ctx, room, 0);
+  paintRoomFrame(ctx, room);
+  paintFixtures(ctx, room, 0);
+  paintLampPool(ctx, 0);
+  // A doormat at the entrance the characters spawn on.
+  fill(ctx, shade(earth0, -6), 344, 380, 80, 18);
+  fill(ctx, earth2, 348, 383, 72, 12);
+  for (let i = 0; i < 9; i += 1) fill(ctx, shade(earth2, -18), 352 + i * 8, 385, 3, 8);
+  roomCache = canvas;
+  roomCacheKey = key;
+  return canvas;
+}
+
+function getHouseVignette(): HTMLCanvasElement | null {
+  if (houseVignetteCache) return houseVignetteCache;
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = document.createElement('canvas');
+  } catch {
+    return null;
+  }
+  canvas.width = W * 2;
+  canvas.height = H * 2;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.scale(2, 2);
+  const vignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.36, W / 2, H / 2, H * 0.95);
+  vignette.addColorStop(0, 'rgba(32,24,16,0)');
+  vignette.addColorStop(1, 'rgba(32,24,16,0.26)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, W, H);
+  houseVignetteCache = canvas;
+  return canvas;
 }
 
 export function drawHouseInterior(
@@ -371,26 +454,31 @@ export function drawHouseInterior(
   people: readonly DrawPerson[],
   selectedId: string | null,
   dt = 0,
+  nearbyId: string | null = null,
+  perItemSprites?: ReadonlyMap<string, HTMLImageElement | null>,
 ): void {
   ctx.imageSmoothingEnabled = false;
   // Held at a single frame when the viewer asked for reduced motion.
   const time = reducedMotion() ? 0 : animClock();
   const room = palette(house);
 
-  paintWall(ctx, room, time);
-  paintFloor(ctx, room, time);
-  paintRoomFrame(ctx, room);
-  paintFixtures(ctx, room, time);
-  paintLampPool(ctx, time);
-
-  // A doormat at the entrance the characters spawn on.
-  fill(ctx, shade(earth0, -6), 344, 380, 80, 18);
-  fill(ctx, earth2, 348, 383, 72, 12);
-  for (let i = 0; i < 9; i += 1) fill(ctx, shade(earth2, -18), 352 + i * 8, 385, 3, 8);
+  const cachedRoom = getRoomShell(house, room);
+  if (cachedRoom) {
+    ctx.drawImage(cachedRoom, 0, 0, W, H);
+  } else {
+    paintWall(ctx, room, time);
+    paintFloor(ctx, room, time);
+    paintRoomFrame(ctx, room);
+    paintFixtures(ctx, room, time);
+    paintLampPool(ctx, time);
+    fill(ctx, shade(earth0, -6), 344, 380, 80, 18);
+    fill(ctx, earth2, 348, 383, 72, 12);
+    for (let i = 0; i < 9; i += 1) fill(ctx, shade(earth2, -18), 352 + i * 8, 385, 3, 8);
+  }
 
   // Hanging sign with the house name.
   const label = house.name.slice(0, 28);
-  ctx.font = '700 12px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.font = '700 12px Inter, ui-sans-serif, system-ui, sans-serif';
   const signW = Math.max(150, Math.min(300, Math.ceil(ctx.measureText(label).width) + 40));
   const signX = 384 - signW / 2;
   fill(ctx, room.trim, 384 - 2, 0, 4, 10);
@@ -402,9 +490,10 @@ export function drawHouseInterior(
   for (const item of house.furniture) {
     const rect = furnitureRect(item);
     const wallItem = item.kind === 'frame' || item.kind === 'board';
+    const itemSprite = perItemSprites?.get(item.id) ?? null;
     sprites.push({
       baseline: wallItem ? rect.y : rect.y + rect.h,
-      paint: () => paintFurniture(ctx, item, item.id === selectedId, time),
+      paint: () => paintFurniture(ctx, item, item.id === selectedId, item.id === nearbyId, time, itemSprite),
     });
   }
   for (const person of people) {
@@ -419,11 +508,16 @@ export function drawHouseInterior(
   for (const sprite of sprites) sprite.paint();
 
   // Warm corner falloff so the room feels enclosed.
-  const vignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.36, W / 2, H / 2, H * 0.95);
-  vignette.addColorStop(0, 'rgba(32,24,16,0)');
-  vignette.addColorStop(1, 'rgba(32,24,16,0.26)');
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, W, H);
+  const cachedVignette = getHouseVignette();
+  if (cachedVignette) {
+    ctx.drawImage(cachedVignette, 0, 0, W, H);
+  } else {
+    const vignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.36, W / 2, H / 2, H * 0.95);
+    vignette.addColorStop(0, 'rgba(32,24,16,0)');
+    vignette.addColorStop(1, 'rgba(32,24,16,0.26)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, W, H);
+  }
 
   // Keyed by owner, so stepping from one house into another also reads as a
   // move rather than an instant content swap.

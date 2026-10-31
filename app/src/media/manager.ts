@@ -91,9 +91,21 @@ export class MediaManager {
     const generation = ++this.screenGeneration;
     this.phase = 'REQUESTING_OS_PERMISSION'; this.error = null; this.changed();
     try {
-      const stream = await devices.getDisplayMedia({ video: { width: { ideal: 1280, max: 1920 }, height: { ideal: 720, max: 1080 }, frameRate: { ideal: 8, max: 10 } }, audio: false });
+      const stream = await devices.getDisplayMedia({
+        video: {
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
+          frameRate: { ideal: 24, max: 30 },
+        },
+        audio: false,
+      });
       if (consent !== this.consentGeneration || generation !== this.screenGeneration || !this.context) { this.stopTracks(stream); return; }
       if (!stream.getVideoTracks().length) { this.stopTracks(stream); throw new Error('No video track'); }
+      for (const track of stream.getVideoTracks()) {
+        if ('contentHint' in track) {
+          try { (track as MediaStreamTrack & { contentHint: string }).contentHint = 'detail'; } catch { /* Optional hint */ }
+        }
+      }
       this.screen = stream; this.phase = 'CAPTURING_LOCAL'; this.changed();
       for (const track of stream.getVideoTracks()) track.addEventListener('ended', () => {
         if (this.screen === stream) { this.stopScreen(); this.phase = 'SOURCE_ENDED'; this.changed(); }

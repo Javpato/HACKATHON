@@ -3,6 +3,7 @@ import {
   PALETTE, animClock, contactShadow, drawAvatar, drawTree, fill,
   glowPool, hash01, ipx, paintSceneFade, plate, reducedMotion, seed, shade, text, trackCharacter,
 } from '../ui/art';
+import { drawPortalSign, WORLD_AREAS } from './areas';
 import { PARCELS, WORLD_TREES, type OccupiedParcel } from './model';
 
 export interface DrawPerson { identity: PublicIdentity; position: Position; isOwn: boolean }
@@ -168,10 +169,11 @@ function terrain(occupied: readonly OccupiedParcel[]): HTMLCanvasElement | null 
   } catch {
     return null;
   }
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = W * 2;
+  canvas.height = H * 2;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
+  ctx.scale(2, 2);
   ctx.imageSmoothingEnabled = false;
   paintGrass(ctx);
   paintPaths(ctx);
@@ -293,10 +295,10 @@ function paintHouse(ctx: CanvasRenderingContext2D, item: OccupiedParcel, time: n
   const boardW = w - 16;
   let label = item.house.name.trim();
   let size = 9;
-  ctx.font = `700 ${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.font = `700 ${size}px Inter, ui-sans-serif, system-ui, sans-serif`;
   if (ctx.measureText(label).width > boardW - 8) {
     size = 8;
-    ctx.font = `700 ${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    ctx.font = `700 ${size}px Inter, ui-sans-serif, system-ui, sans-serif`;
     while (label.length > 4 && ctx.measureText(`${label}...`).width > boardW - 8) {
       label = label.slice(0, -1);
     }
@@ -308,7 +310,7 @@ function paintHouse(ctx: CanvasRenderingContext2D, item: OccupiedParcel, time: n
   // Who lives here, on a stake by the path.
   const tagY = slot < 3 ? y + h + 16 : y - 22;
   const tag = item.isOwn ? 'TU CASA' : item.name.slice(0, 15);
-  ctx.font = '700 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.font = '700 9px Inter, ui-sans-serif, system-ui, sans-serif';
   const tw = Math.min(120, Math.ceil(ctx.measureText(tag).width) + 16);
   plate(ctx, item.parcel.doorX - tw / 2, tagY, tw, 15, item.isOwn ? ember4 : PALETTE.paper[3], trim);
   text(ctx, tag, item.parcel.doorX, tagY + 11, PALETTE.paper[0], 9);
@@ -388,10 +390,11 @@ function vignette(): HTMLCanvasElement | null {
   } catch {
     return null;
   }
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = W * 2;
+  canvas.height = H * 2;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
+  ctx.scale(2, 2);
   const gradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.34, W / 2, H / 2, H * 0.92);
   gradient.addColorStop(0, 'rgba(20,40,32,0)');
   gradient.addColorStop(1, 'rgba(20,40,32,0.30)');
@@ -403,7 +406,7 @@ function vignette(): HTMLCanvasElement | null {
 
 function paintVignette(ctx: CanvasRenderingContext2D): void {
   const cached = vignette();
-  if (cached) { ctx.drawImage(cached, 0, 0); return; }
+  if (cached) { ctx.drawImage(cached, 0, 0, W, H); return; }
   const gradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.34, W / 2, H / 2, H * 0.92);
   gradient.addColorStop(0, 'rgba(20,40,32,0)');
   gradient.addColorStop(1, 'rgba(20,40,32,0.30)');
@@ -418,6 +421,7 @@ export function drawWorld(
   occupied: readonly OccupiedParcel[],
   people: readonly DrawPerson[],
   dt = 0,
+  nearbyPortalId: string | null = null,
 ): void {
   ctx.imageSmoothingEnabled = false;
   const calm = reducedMotion();
@@ -426,8 +430,12 @@ export function drawWorld(
   const time = calm ? 0 : animClock();
 
   const ground = terrain(occupied);
-  if (ground) ctx.drawImage(ground, 0, 0);
+  if (ground) ctx.drawImage(ground, 0, 0, W, H);
   else { paintGrass(ctx); paintPaths(ctx); paintPlaza(ctx); }
+
+  for (const portal of WORLD_AREAS.residential.portals) {
+    drawPortalSign(ctx, portal, portal.id === nearbyPortalId);
+  }
 
   const sprites: Sprite[] = [];
 

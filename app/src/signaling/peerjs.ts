@@ -30,8 +30,8 @@ function mediaAdapter(connection: MediaConnection): MediaCall {
         const parameters = sender.getParameters();
         if (!parameters.encodings?.length) continue;
         for (const encoding of parameters.encodings) {
-          encoding.maxBitrate = kind === 'audio' ? 32_000 : 800_000;
-          if (kind === 'screen') encoding.maxFramerate = 10;
+          encoding.maxBitrate = kind === 'audio' ? 48_000 : 2_500_000;
+          if (kind === 'screen') encoding.maxFramerate = 24;
         }
         void sender.setParameters(parameters).catch(() => { /* Browser may not expose bitrate controls. */ });
       }

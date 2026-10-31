@@ -20,6 +20,7 @@
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@google/genai": "^2.32.0",
     "@tauri-apps/api": "2.12.4",
     "mathjax-full": "3.2.2",
     "peerjs": "1.5.5",

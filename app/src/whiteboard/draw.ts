@@ -86,9 +86,9 @@ function drawNote(ctx: CanvasRenderingContext2D, stroke: Drawable): void {
     } else {
       const failed = line.kind === 'math' && line.image === 'error';
       ctx.font = `${failed ? 500 : 600} ${size}px ${FONT}`;
-      // Loading math shows its source faintly; broken math shows it in red so
+      // Loading math shows its source in dark ink; broken math shows it in red so
       // the author can see what to fix.
-      ctx.fillStyle = line.kind === 'math' ? (failed ? '#c0473a' : 'rgba(60,80,70,0.45)') : stroke.color;
+      ctx.fillStyle = line.kind === 'math' ? (failed ? '#c0473a' : 'rgba(49,95,81,0.82)') : stroke.color;
       ctx.fillText(line.kind === 'math' ? line.source : line.value, anchor.x, y + (line.h - size) / 2);
     }
     y += line.h;

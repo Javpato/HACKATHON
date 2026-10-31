@@ -8,15 +8,21 @@ import { test, expect } from '@playwright/test';
 const SECTIONS: ReadonlyArray<readonly [string, string]> = [
   ['La aldea', 'La aldea'],
   ['Mi casa', 'Mi rincón de estudio'],
-  ['Pizarra', 'La pizarra'],
   ['Editor local', 'Tu cuaderno de código'],
   ['Contactos', 'Personas de confianza'],
 ];
 
+async function openHouseWhiteboard(page: import('@playwright/test').Page, index = 0) {
+  await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).first().click();
+  const boardItem = page.locator('.sv-furniture-item', { hasText: 'Pizarra' }).nth(index);
+  await expect(boardItem).toBeVisible();
+  await boardItem.dblclick();
+}
+
 test('the village shell loads offline and contacts no external host', async ({ page }) => {
   const external: string[] = [];
   page.on('request', req => {
-    if (!req.url().startsWith('http://127.0.0.1:1420')) external.push(req.url());
+    if (!req.url().startsWith('http://127.0.0.1:1420') && !req.url().startsWith('http://127.0.0.1:3000')) external.push(req.url());
   });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'La aldea', exact: true })).toBeVisible();
@@ -34,8 +40,9 @@ test('the declared favicon resolves instead of falling back to a 404', async ({ 
   expect(res.headers()['content-type']).toContain('image/svg+xml');
 });
 
-test('every local section opens and marks itself as the current page', async ({ page }) => {
+test('every local section opens and marks itself as the current page, and left-side Pizarra button is removed', async ({ page }) => {
   await page.goto('/');
+  await expect(page.locator('.sv-nav-item', { hasText: 'Pizarra' })).toHaveCount(0);
   for (const [label, heading] of SECTIONS) {
     await page.locator('.sv-nav-item', { hasText: label }).first().click();
     const active = page.locator('.sv-nav-item[aria-current="page"]');
@@ -59,8 +66,8 @@ test('a saved display name survives a reload through local persistence', async (
 
 test('drawing on the board marks the canvas and undo reverts exactly that stroke', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.sv-nav-item', { hasText: 'Pizarra' }).first().click();
-  const canvas = page.locator('canvas:visible').first();
+  await openHouseWhiteboard(page, 0);
+  const canvas = page.locator('.sv-board-wrap canvas');
   await expect(canvas).toBeVisible();
 
   const box = await canvas.boundingBox();
@@ -124,16 +131,14 @@ test('decorative motion runs when reduced motion is not requested', async ({ pag
 
 test('opening the board from a room offers a way back into that same room', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).first().click();
-  await expect(page.getByRole('heading', { name: 'Mi rincón de estudio', exact: true }).first()).toBeVisible();
-  await page.locator('.sv-nav-item', { hasText: 'Pizarra' }).first().click();
+  await openHouseWhiteboard(page, 0);
   const back = page.getByRole('button', { name: '← Volver a mi casa' });
   await expect(back).toBeVisible();
   await back.click();
   await expect(page.locator('.sv-nav-item[aria-current="page"]')).toContainText('Mi casa');
 
   // Escape from the board also steps back into the room, not out to the village.
-  await page.locator('.sv-nav-item', { hasText: 'Pizarra' }).first().click();
+  await openHouseWhiteboard(page, 0);
   await page.keyboard.press('Escape');
   await expect(page.locator('.sv-nav-item[aria-current="page"]')).toContainText('Mi casa');
 });
@@ -158,18 +163,28 @@ test('E only leaves a room from the doorway', async ({ page }) => {
 test.describe('whiteboard tools', () => {
   const openBoard = async (page: import('@playwright/test').Page) => {
     await page.goto('/');
-    await page.locator('.sv-nav-item', { hasText: 'Pizarra' }).first().click();
+    await openHouseWhiteboard(page, 0);
     const canvas = page.locator('.sv-board-wrap canvas');
     await expect(canvas).toBeVisible();
-    const box = (await canvas.boundingBox())!;
-    const tool = (name: string) => page.locator('.sv-segment-button', { hasText: name }).first().click();
+    const tool = async (name: string) => {
+      await page.locator('.sv-segment-button', { hasText: name }).first().click();
+    };
     const undo = page.getByRole('button', { name: '↶ Deshacer' });
-    const line = async (y: number) => {
-      await page.mouse.move(box.x + 100, box.y + y);
+    const line = async (yLogic: number) => {
+      const currentBox = (await canvas.boundingBox())!;
+      const py = currentBox.y + currentBox.height * (yLogic / 432);
+      const pxStart = currentBox.x + currentBox.width * (100 / 768);
+      await page.mouse.move(pxStart, py);
       await page.mouse.down();
-      for (let i = 1; i <= 10; i += 1) await page.mouse.move(box.x + 100 + i * 20, box.y + y);
+      for (let i = 1; i <= 10; i += 1) {
+        await page.mouse.move(
+          currentBox.x + currentBox.width * ((100 + i * 20) / 768),
+          py,
+        );
+      }
       await page.mouse.up();
     };
+    const box = (await canvas.boundingBox())!;
     return { canvas, box, tool, undo, line };
   };
 
@@ -190,9 +205,10 @@ test.describe('whiteboard tools', () => {
     await expect(undo).toBeEnabled();
     await tool('Borrador');
     const { box } = await openBoardBox(page);
-    await page.mouse.move(box.x + 200, box.y + 280);
+    const eraseX = box.x + box.width * (200 / 768);
+    await page.mouse.move(eraseX, box.y + box.height * (280 / 432));
     await page.mouse.down();
-    await page.mouse.move(box.x + 200, box.y + 320, { steps: 6 });
+    await page.mouse.move(eraseX, box.y + box.height * (320 / 432), { steps: 6 });
     await page.mouse.up();
     await expect(undo).toBeDisabled();
   });
@@ -242,3 +258,150 @@ async function openBoardBox(page: import('@playwright/test').Page) {
   const box = (await page.locator('.sv-board-wrap canvas').boundingBox())!;
   return { box };
 }
+
+test.describe('Mobile phone touch controls & responsive experience', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test('displays mobile touch controller HUD with D-pad and Action button on phones', async ({ page }) => {
+    await page.goto('/');
+    // Check that D-pad and Action button are visible on phone viewport
+    const touchControls = page.locator('.sv-touch-controls');
+    await expect(touchControls).toBeVisible();
+
+    const dpad = page.locator('.sv-dpad');
+    await expect(dpad).toBeVisible();
+    await expect(page.locator('.sv-dpad-up')).toBeVisible();
+    await expect(page.locator('.sv-dpad-down')).toBeVisible();
+    await expect(page.locator('.sv-dpad-left')).toBeVisible();
+    await expect(page.locator('.sv-dpad-right')).toBeVisible();
+
+    const actionBtn = page.locator('[data-testid="touch-action-btn"]');
+    await expect(actionBtn).toBeVisible();
+    await expect(actionBtn).toContainText('Usar');
+
+    // Tap D-pad button
+    await page.locator('.sv-dpad-up').dispatchEvent('pointerdown');
+    await page.waitForTimeout(50);
+    await page.locator('.sv-dpad-up').dispatchEvent('pointerup');
+
+    // Tap action button
+    await actionBtn.click();
+
+    // Verify touch toggle button
+    const toggleBtn = page.locator('.sv-touch-toggle-pill');
+    await expect(toggleBtn).toBeVisible();
+  });
+});
+
+test.describe('Multiplayer pixel-art world expansion', () => {
+  test('navigates between Residential, Community Plaza, and Study Library areas and opens minigames & study tools', async ({ page }) => {
+    await page.goto('/');
+
+    const expansionBar = page.getByTestId('world-expansion-bar');
+    await expect(expansionBar).toBeVisible();
+
+    // Switch to Community Plaza and Study Library
+    await page.getByTestId('area-btn-community').click();
+    await expect(page.getByTestId('area-btn-community')).toHaveClass(/is-active/);
+
+    await page.getByTestId('area-btn-study').click();
+    await expect(page.getByTestId('area-btn-study')).toHaveClass(/is-active/);
+
+    await page.getByTestId('area-btn-residential').click();
+    await expect(page.getByTestId('area-btn-residential')).toHaveClass(/is-active/);
+
+    // Open Werewolves modal, add bots, and start Night 1
+    await page.getByTestId('open-werewolves-btn').click();
+    const modal = page.getByTestId('expansion-modal-overlay');
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('Hombres Lobo');
+    await page.getByTestId('werewolves-add-bots-btn').click();
+    await page.getByTestId('werewolves-start-btn').click();
+    await expect(modal).toContainText('Tu rol secreto');
+    await page.getByTestId('expansion-modal-close').click();
+    await expect(modal).toBeHidden();
+
+    // Open Secure Notes modal
+    await page.getByTestId('open-secure-notes-btn').click();
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('Apuntes Seguros');
+    await page.getByTestId('expansion-modal-close').click();
+
+    // Open Flashcards & Local Ollama Study Session modal
+    await page.getByTestId('open-ollama-study-btn').click();
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('Mazos de Flashcards, Estudio en Grupo y Ollama');
+    // Verify honest Ollama status message ("Ollama was not detected.") and zero fake models
+    await expect(page.getByTestId('ollama-status-message')).toHaveText('Ollama was not detected.');
+    await expect(page.getByTestId('ollama-model-select')).toBeDisabled();
+
+    // Verify Manual Flashcard Creation ("Create Manually" alongside "Generate with AI") works end-to-end without AI
+    await expect(page.getByTestId('mode-create-manual-btn')).toBeVisible();
+    await expect(page.getByTestId('mode-generate-ai-btn')).toBeVisible();
+
+    // Switch to Generate with AI -> button is disabled because Ollama is not detected
+    await page.getByTestId('mode-generate-ai-btn').click();
+    await expect(page.getByTestId('flashcard-gen-submit-btn')).toBeDisabled();
+    await expect(page.getByTestId('ai-unavailable-notice')).toContainText('Ollama was not detected.');
+
+    // Switch back to Create Manually -> create a deck, rename it, add cards, reorder, edit, and flip
+    await page.getByTestId('mode-create-manual-btn').click();
+    await page.getByTestId('manual-deck-title-input').fill('Física Clásica Manual');
+    await page.getByTestId('manual-deck-create-btn').click();
+
+    await page.getByTestId('manual-card-question').fill('¿Qué dice la Segunda Ley de Newton?');
+    await page.getByTestId('manual-card-answer').fill('F = m · a');
+    await page.getByTestId('manual-card-hint').fill('Relaciona fuerza, masa y aceleración');
+    await page.getByTestId('manual-card-tags').fill('dinámica, newton');
+    await page.getByTestId('manual-card-explanation').fill('La fuerza neta es proporcional a la aceleración.');
+    await page.getByTestId('manual-card-submit-btn').click();
+
+    // Flip card in interactive study podium
+    const flipCard = page.getByTestId('study-session-flip-card');
+    await expect(flipCard).toContainText('¿Qué dice la Segunda Ley de Newton?');
+    await flipCard.click();
+    await expect(flipCard).toContainText('F = m · a');
+
+    await page.getByTestId('expansion-modal-close').click();
+
+    // Verify Collaborative Project workspace inside Editor local
+    await page.locator('.sv-nav').getByRole('button', { name: 'Editor local' }).click();
+    await expect(page.getByTestId('collab-project-workspace')).toBeVisible();
+  });
+
+  test('every whiteboard inside a house is independent and persists its own name and strokes across reopening', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).first().click();
+
+    // Add a second whiteboard furniture item inside the house
+    await page.locator('.sv-house-editor select').last().selectOption('board');
+    await page.getByRole('button', { name: '+ Añadir' }).click();
+    const boardItems = page.locator('.sv-furniture-item', { hasText: 'Pizarra' });
+    await expect(boardItems).toHaveCount(2);
+
+    // Open Whiteboard #1, rename it, and draw a stroke
+    await boardItems.nth(0).dblclick();
+    const renameInput = page.getByTestId('board-rename-input');
+    await renameInput.fill('Pizarra Álgebra');
+    await renameInput.dispatchEvent('change');
+    const canvas = page.locator('.sv-board-wrap canvas');
+    const box1 = (await canvas.boundingBox())!;
+    await page.mouse.move(box1.x + 80, box1.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(box1.x + 220, box1.y + 140, { steps: 6 });
+    await page.mouse.up();
+    await expect(page.getByRole('button', { name: '↶ Deshacer' })).toBeEnabled();
+
+    // Return to house and open Whiteboard #2 -> must be completely empty and have its own independent name!
+    await page.getByRole('button', { name: '← Volver a mi casa' }).click();
+    await boardItems.nth(1).dblclick();
+    await expect(page.getByRole('button', { name: '↶ Deshacer' })).toBeDisabled();
+    await expect(page.getByTestId('board-rename-input')).not.toHaveValue('Pizarra Álgebra');
+
+    // Return to house and reopen Whiteboard #1 -> its stroke and name persisted!
+    await page.getByRole('button', { name: '← Volver a mi casa' }).click();
+    await boardItems.nth(0).dblclick();
+    await expect(page.getByTestId('board-rename-input')).toHaveValue('Pizarra Álgebra');
+    await expect(page.getByRole('button', { name: '↶ Deshacer' })).toBeEnabled();
+  });
+});

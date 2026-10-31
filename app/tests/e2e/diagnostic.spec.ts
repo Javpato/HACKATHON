@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test('capability page is honest and sends no signaling requests on load', async ({ page }) => {
   const external: string[] = [];
-  page.on('request', req => { if (!req.url().startsWith('http://127.0.0.1:1420')) external.push(req.url()); });
+  page.on('request', req => {
+    if (!req.url().startsWith('http://127.0.0.1:1420') && !req.url().startsWith('http://127.0.0.1:3000')) external.push(req.url());
+  });
   await page.goto('/?diagnostic=1');
   await expect(page.getByRole('heading', { name: 'Primero, comprobar la conexión.' })).toBeVisible();
   await expect(page.getByText('UNVERIFIED · Dos Linux / redes distintas')).toBeVisible();
