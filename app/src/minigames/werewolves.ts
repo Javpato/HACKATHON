@@ -187,7 +187,8 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
   private exposedGirls = new Set<string>();
   private hunters: string[] = [];
   private spentHunters = new Set<string>();
-  private resumeAfterDeath: 'dawn' | 'verdict' = 'dawn';
+  private resumeAfterDeath: 'dawn' | 'verdict' | 'interrupted' = 'dawn';
+  private interrupted: { phase: 'reveal' | 'night' | 'dawn' | 'day' | 'verdict'; step: NightStep | null; remaining: number } | null = null;
 
   constructor(private readonly random: (max: number) => number = secureRandomInt, private readonly authorityId: string | null = null) {}
 
@@ -195,7 +196,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     this.phase = 'lobby';
     this.step = null; this.round = 0; this.deadline = 0; this.deck = []; this.log = [{ icon: 'info', text: 'El anfitrión terminó la partida.' }];
     this.night = emptyNight(); this.votes.clear(); this.seerSeen.clear(); this.winner = null;
-    this.lovers = null; this.peeks.clear(); this.exposedGirls.clear(); this.hunters = []; this.spentHunters.clear();
+    this.lovers = null; this.peeks.clear(); this.exposedGirls.clear(); this.hunters = []; this.spentHunters.clear(); this.interrupted = null;
     for (const p of this.players) { p.role = null; p.alive = true; p.ready = false; }
   }
 
@@ -217,12 +218,15 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
       }
       case 'leave': {
         if (!actor) return;
-        if (this.phase === 'lobby') {
+        if (this.phase === 'lobby' || this.phase === 'end') {
           this.players = this.players.filter((p) => p.id !== actorId);
         } else if (actor.alive) {
           actor.alive = false;
           this.say('info', `${actor.name} abandona la partida.`);
-          this.afterDeaths(now);
+          if (this.phase !== 'hunter') {
+            this.interrupted = { phase: this.phase, step: this.step, remaining: Math.max(0, this.deadline - now) };
+            this.finishDeaths(now, 'interrupted');
+          } else this.finishDeaths(now, this.resumeAfterDeath);
         }
         if (this.leaderId === actorId) this.leaderId = this.players.find((p) => !p.bot && p.id !== actorId)?.id ?? null;
         if (!this.players.some((p) => !p.bot && (this.phase === 'lobby' || p.id !== actorId))) this.reset();
@@ -283,7 +287,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
         const cards = shuffle(this.deck, this.random);
         this.players.forEach((p, i) => { p.role = cards[i]; p.alive = true; p.ready = p.bot; });
         this.round = 0;
-        this.lovers = null; this.peeks.clear(); this.exposedGirls.clear(); this.hunters = []; this.spentHunters.clear();
+        this.lovers = null; this.peeks.clear(); this.exposedGirls.clear(); this.hunters = []; this.spentHunters.clear(); this.interrupted = null;
         this.healLeft = true;
         this.poisonLeft = true;
         this.lastGuarded = null;
@@ -536,6 +540,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
   }
 
   private afterDeaths(now: number): void {
+    for (const [voter, target] of this.votes) if (!this.players.some(p => p.id === voter && p.alive) || (target !== 'skip' && !this.players.some(p => p.id === target && p.alive))) this.votes.delete(voter);
     if (this.checkWin()) return;
     if (this.phase === 'night' && this.stepDone()) this.endStep(now);
     else if (this.phase === 'day' && this.alive().every((p) => this.votes.has(p.id))) this.closeVote(now);
@@ -546,7 +551,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     catch (e) { return { deck: [], error: e instanceof Error ? e.message : 'Set inválido.' }; }
   }
 
-  private finishDeaths(now: number, resume: 'dawn' | 'verdict'): void {
+  private finishDeaths(now: number, resume: 'dawn' | 'verdict' | 'interrupted'): void {
     this.resumeAfterDeath = resume;
     if (this.lovers) {
       const pair = this.lovers.map(id => this.players.find(p => p.id === id)!);
@@ -554,7 +559,13 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     }
     for (const p of this.players) if (!p.alive && p.role === 'hunter' && !this.spentHunters.has(p.id)) { this.spentHunters.add(p.id); this.hunters.push(p.id); }
     if (this.hunters.length) { this.phase = 'hunter'; this.step = null; this.deadline = now + DURATIONS.hunter; this.botAt = now + 1800; return; }
-    if (!this.checkWin()) this.enter(resume, now);
+    if (this.checkWin()) return;
+    if (resume !== 'interrupted') this.enter(resume, now);
+    else if (this.interrupted) {
+      this.phase = this.interrupted.phase; this.step = this.interrupted.step;
+      this.deadline = now + this.interrupted.remaining; this.botAt = now + 1000; this.interrupted = null;
+      this.afterDeaths(now);
+    }
   }
 
   private checkWin(): boolean {

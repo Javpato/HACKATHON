@@ -41,6 +41,19 @@ describe('role cards and host controls',()=>{
     game.apply(id('hunter'),{kind:'hunter',target:id('werewolf')},8);expect(game.phase).toBe('dawn');
     game.cancel();expect(game.phase).toBe('lobby');expect(game.players).toHaveLength(8);expect(game.players.every(p=>p.role===null)).toBe(true);
   });
+  it('resolves a departing lover and hunter without skipping the interrupted night',()=>{
+    const game=new WerewolvesGame(()=>0,'host');
+    for(let i=0;i<8;i++)game.apply(`p${i}`,{kind:'join',name:`p${i}`,color:'#123456'},0);
+    game.apply('host',{kind:'configure',counts:{werewolf:2,seer:1,cupid:1,hunter:1,girl:1}},0);
+    game.apply('host',{kind:'start'},0);for(const p of game.players)game.apply(p.id,{kind:'ready'},1);
+    const id=(role:string)=>game.players.find(p=>p.role===role)!.id;
+    game.apply(id('cupid'),{kind:'cupid',targets:[id('hunter'),id('seer')]},2);
+    game.apply(id('seer'),{kind:'leave'},3);expect(game.phase).toBe('hunter');
+    expect(game.players.find(p=>p.id===id('hunter'))!.alive).toBe(false);
+    game.apply(id('hunter'),{kind:'hunter',target:id('werewolf')},4);
+    expect(game.phase).toBe('night');expect(game.step).toBe('wolves');
+    expect(game.players.filter(p=>p.alive)).toHaveLength(5);
+  });
   it('keeps ordinary Gartic bots disabled and ignores stale inference after cancellation',()=>{
     const game=new GarticGame(()=>0);game.apply('a',{kind:'join',name:'a',color:'#123456'},0);
     expect(()=>game.apply('a',{kind:'add_bot'},0)).toThrow(/Ollama/);
