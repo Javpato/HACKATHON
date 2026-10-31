@@ -1,3 +1,4 @@
+import { normalizeAppearance } from '../src/assets/appearance';
 import { areaOf, isInScene } from '../src/world/location';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setTimeout as waitReal } from 'node:timers/promises';
@@ -144,6 +145,18 @@ describe('session integration using a FAKE in-memory transport, real WebCrypto (
     expect(host.instance.view.members.map(member => member.slot)).toEqual([0, 1, 2]);
     expect(b.instance.view.members.map(member => member.slot)).toEqual([0, 1, 2]);
     expect(JSON.stringify(network.messages)).not.toMatch(/privateKey|filePath|sourceCode|sqlQuery/);
+  });
+  it('shares wardrobe looks both ways through the host', async () => {
+    const network = new FakeNetwork(), clock = new ManualClock();
+    const host = await client(network, clock, 'Host'), b = await client(network, clock, 'B');
+    await host.instance.openVillage(); await admit(host.instance, b.instance);
+    const seen = (viewer: VillageClient, who: LocalIdentity) => viewer.view.members.find(m => m.identity.fingerprint === who.public.fingerprint)?.appearance;
+    await b.instance.updateAppearance(normalizeAppearance({ headwear: 'crown', eyewear: 'sunglasses', outfit: 'suit', jacket: 'coat' }));
+    await until(() => seen(host.instance, b.identity)?.headwear === 'crown', 'guest look reaches host');
+    expect(seen(host.instance, b.identity)).toMatchObject({ eyewear: 'sunglasses', outfit: 'suit', jacket: 'coat' });
+    await host.instance.updateAppearance(normalizeAppearance({ headwear: 'beret', jacket: 'blazer' }));
+    await until(() => seen(b.instance, host.identity)?.headwear === 'beret', 'host look reaches guest');
+    expect(seen(b.instance, b.identity)?.headwear).toBe('crown');
   });
   it('routes shared-activity messages through the host and names the real sender', async () => {
     const network = new FakeNetwork(), clock = new ManualClock();
