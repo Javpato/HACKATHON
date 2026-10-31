@@ -13,7 +13,7 @@ import type { Rect } from './model';
  * Defines the neighborhood's interconnected spatial areas:
  * 1. `residential` — Barrio Residencial (6 deterministic player house parcels + portals)
  * 2. `community`   — Plaza Comunitaria (shared social hub with Werewolves campfire,
- *                    Gartic Phone drawing table, Arcade machine, Community Whiteboard,
+ *                    Gartic Phone drawing table, Community Whiteboard,
  *                    Collaborative Project workstation, and portal to Study Library)
  * 3. `study`       — Biblioteca y Taller de Estudio (dedicated creative & study zone
  *                    with Shared Flashcard Podium, Secure Notes Desk, Study Whiteboard,
@@ -80,9 +80,9 @@ export const WORLD_AREAS: Record<BuiltinAreaId, WorldAreaDefinition> = {
   community: {
     id: 'community',
     displayName: 'Plaza Comunitaria',
-    subtitle: 'Centro social del vecindario: Lobos, Gartic Phone, Pizarra común, Arcade y Proyectos.',
+    subtitle: 'Centro social del vecindario: Hombres Lobo, Gartic Phone, pizarra común y proyectos.',
     bounds: { x: 0, y: 0, w: LIMITS.worldWidth, h: LIMITS.worldHeight },
-    defaultSpawn: { x: 384, y: 230, direction: 'down', moving: false },
+    defaultSpawn: { x: 384, y: 270, direction: 'down', moving: false },
     portals: [
       {
         id: 'portal:community-to-res',
@@ -156,7 +156,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     kind: 'campfire_werewolves',
     defaultLabel: 'Hoguera de los Lobos',
     displayName: 'Hoguera · Hombres Lobo',
-    description: 'Mesa circular junto al fuego para jugar Hombres Lobo / Loup-Garou (3 a 6 jugadores).',
+    description: 'Mesa junto al fuego para jugar Hombres Lobo (4 a 8 jugadores, con bots si faltan).',
     promptKey: 'E · Jugar Hombres Lobo',
     x: 342,
     y: 176,
@@ -179,7 +179,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     id: 'community:drawing-table-gartic',
     areaId: 'community',
     kind: 'drawing_table_gartic',
-    defaultLabel: 'Mesa de Dibujo Gartic',
+    defaultLabel: 'Mesa de dibujo',
     displayName: 'Mesa · Gartic Phone',
     description: 'Mesa creativa de dibujo y teléfono descompuesto para toda la aldea.',
     promptKey: 'E · Jugar Gartic Phone',
@@ -227,38 +227,13 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     revision: 1,
   },
   {
-    id: 'community:arcade-station',
-    areaId: 'community',
-    kind: 'arcade_machine',
-    defaultLabel: 'Recreativa Arcade',
-    displayName: 'Arcade de la Aldea',
-    description: 'Máquina recreativa extensible para minijuegos rápidos y retos de estudio.',
-    promptKey: 'E · Abrir Arcade',
-    x: 566,
-    y: 78,
-    w: 52,
-    h: 62,
-    layer: 'object',
-    hasCollision: true,
-    interactionRadius: 44,
-    ownerId: null,
-    visibility: 'everyone',
-    usePermission: 'public',
-    editPermission: 'host_only',
-    allowedUsers: [],
-    customSpriteDataUrl: null,
-    customColor: null,
-    state: { mode: 'trivia' },
-    revision: 1,
-  },
-  {
     id: 'community:project-station',
     areaId: 'community',
     kind: 'computer_project',
     defaultLabel: 'Terminal de Proyectos',
     displayName: 'Estación de Proyectos',
-    description: 'Espacio de código colaborativo multi-archivo con ejecución autorizada por el anfitrión.',
-    promptKey: 'E · Proyectos Colaborativos',
+    description: 'Proyectos del grupo: abre el repositorio o únete a la sesión Live Share en VS Code.',
+    promptKey: 'E · Proyectos en VS Code',
     x: 132,
     y: 304,
     w: 78,
@@ -438,10 +413,10 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     id: 'study:project-workbench',
     areaId: 'study',
     kind: 'computer_project',
-    defaultLabel: 'Laboratorio de Código',
+    defaultLabel: 'Taller de proyectos',
     displayName: 'Taller de Proyectos',
-    description: 'Entorno tipo VS Code para editar proyectos multi-archivo y solicitar ejecución al anfitrión.',
-    promptKey: 'E · Taller de Proyectos',
+    description: 'Proyectos del grupo: abre el repositorio o únete a la sesión Live Share en VS Code.',
+    promptKey: 'E · Proyectos en VS Code',
     x: 136,
     y: 298,
     w: 84,
@@ -602,27 +577,6 @@ function paintStationObject(
         fill(ctx, ember1, x + 54, y + 12, 7, 7);
         fill(ctx, tide1, x + 63, y + 12, 7, 7);
         fill(ctx, moss4, x + 58, y + 20, 7, 6);
-        break;
-      }
-      case 'arcade_machine': {
-        // Retro pixel arcade cabinet
-        fill(ctx, '#263849', x + 4, y + 4, w - 8, h - 4);
-        fill(ctx, '#39556e', x + 6, y + 6, w - 12, h - 10);
-        // Marquee
-        fill(ctx, ember2, x + 6, y + 6, w - 12, 10);
-        fill(ctx, ember4, x + 10, y + 8, w - 20, 6);
-        // CRT screen
-        const pulse = 0.8 + Math.sin(time * 3.5) * 0.15;
-        ctx.fillStyle = `rgba(116, 192, 189, ${pulse})`;
-        ctx.fillRect(ipx(x + 10), ipx(y + 20), w - 20, 18);
-        fill(ctx, '#1b2b38', x + 14, y + 24, 8, 8);
-        fill(ctx, ember3, x + 26, y + 26, 6, 6);
-        // Joystick deck
-        fill(ctx, '#1f2e3d', x + 4, y + 40, w - 8, 8);
-        fill(ctx, ember1, x + 14, y + 37, 4, 5);
-        fill(ctx, ember4, x + 28, y + 41, 4, 3);
-        fill(ctx, moss4, x + 34, y + 41, 4, 3);
-        glowPool(ctx, x + w / 2, y + h, 30, '116,192,189');
         break;
       }
       case 'whiteboard': {
@@ -806,7 +760,7 @@ export function drawCommunityPlaza(
 
   for (const person of people) {
     const id = person.identity.fingerprint || person.identity.displayName;
-    const at = trackCharacter(id, person.position, dt, !person.isOwn);
+    const at = trackCharacter(id, person.position, dt, !person.isOwn, 'community');
     sprites.push({
       baseline: at.y,
       paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
@@ -876,7 +830,7 @@ export function drawStudyLibrary(
 
   for (const person of people) {
     const id = person.identity.fingerprint || person.identity.displayName;
-    const at = trackCharacter(id, person.position, dt, !person.isOwn);
+    const at = trackCharacter(id, person.position, dt, !person.isOwn, 'study');
     sprites.push({
       baseline: at.y,
       paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),

@@ -5,7 +5,7 @@ import type { Rect } from './model';
  * Part 3 — Extensible Interactive Object System
  *
  * Every interactive element in the world (furniture, community stations,
- * whiteboards, arcade machines, study desks, portals, lamps, etc.) is
+ * whiteboards, game tables, study desks, portals, lamps, etc.) is
  * represented through a clean, extensible object abstraction with stable IDs,
  * editable display names, optional custom sprites, permissions, and persistent state.
  */
@@ -17,7 +17,6 @@ export type InteractiveObjectKind =
   | 'computer_project'
   | 'drawing_table_gartic'
   | 'campfire_werewolves'
-  | 'arcade_machine'
   | 'bookshelf_notes'
   | 'flashcard_podium'
   | 'ai_tutor_console'
@@ -97,7 +96,6 @@ export const interactiveObjectSchema = z.object({
     'computer_project',
     'drawing_table_gartic',
     'campfire_werewolves',
-    'arcade_machine',
     'bookshelf_notes',
     'flashcard_podium',
     'ai_tutor_console',

@@ -223,7 +223,11 @@ export class SecureNotesStore {
 
   constructor(defaultOwnerId = 'local-owner') {
     this.seedDefaults(defaultOwnerId);
+    const template = this.notes.get('note:welcome-study');
+    this.notes.clear(); this.notebooks.delete('notebook:matematicas');
     this.loadFromStorage();
+    const old = this.notes.get('note:welcome-study');
+    if (old && template && old.revision === 1 && old.title === template.title && old.content === template.content) this.notes.delete(old.id);
   }
 
   private seedDefaults(ownerId: string): void {

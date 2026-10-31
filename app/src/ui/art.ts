@@ -157,6 +157,7 @@ interface CharacterAnim {
   lastSeen: number;
   facing: Position['direction'];
   turn: number;
+  sceneId?: string;
 }
 
 const anims = new Map<string, CharacterAnim>();
@@ -197,9 +198,10 @@ function animFor(id: string, position: Position): CharacterAnim {
  * remote peers need because their updates arrive at roughly 12 Hz. The local
  * character passes smooth=false so input stays immediate.
  */
-export function trackCharacter(id: string, position: Position, dt: number, smooth: boolean): { x: number; y: number } {
+export function trackCharacter(id: string, position: Position, dt: number, smooth: boolean, sceneId = 'residential'): { x: number; y: number } {
   const state = animFor(id, position);
   state.lastSeen = frameClock;
+  if (state.sceneId !== sceneId) { state.renderX = position.x; state.renderY = position.y; state.sceneId = sceneId; }
 
   if (smooth) {
     const blend = 1 - Math.pow(0.0015, dt);

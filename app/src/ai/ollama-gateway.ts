@@ -29,6 +29,8 @@ export interface FlashcardItem {
   hint?: string;
   explanation?: string;
   sourceRef?: string;
+  choices?: string[];
+  correctChoice?: number;
   topic: string;
   difficulty: FlashcardDifficulty;
   tags: string[];
@@ -55,10 +57,12 @@ export const flashcardItemSchema = z.object({
   hint: z.string().max(220).optional(),
   explanation: z.string().max(320).optional(),
   sourceRef: z.string().max(120).optional(),
+  choices: z.array(z.string().trim().min(1).max(120)).min(2).max(4).optional(),
+  correctChoice: z.number().int().min(0).max(3).optional(),
   topic: z.string().min(1).max(100),
   difficulty: z.enum(['easy', 'medium', 'hard']),
   tags: z.array(z.string().min(1).max(32)).max(8),
-});
+}).refine(c => c.choices ? c.correctChoice !== undefined && c.correctChoice < c.choices.length && new Set(c.choices).size === c.choices.length : c.correctChoice === undefined, 'Opciones de concurso inválidas.');
 
 export const flashcardDeckSchema = z.object({
   id: z.string().min(1).max(80),
@@ -234,7 +238,11 @@ export class HostOllamaGateway {
 
   constructor() {
     this.seedDefaultDeck();
+    const template = this.decks.get('deck:starter-studyvillage');
+    this.decks.clear();
     this.loadDecksFromStorage();
+    const old = this.decks.get('deck:starter-studyvillage');
+    if (old && template && old.title === template.title && JSON.stringify(old.cards) === JSON.stringify(template.cards)) this.decks.delete(old.id);
   }
 
   private seedDefaultDeck(): void {
@@ -330,6 +338,22 @@ export class HostOllamaGateway {
     }
   }
 
+  async requestJson(prompt: string, images: string[] = []): Promise<unknown> {
+    if (!this.isAiReady() || !isLoopbackOllamaUrl(this.config.baseUrl)) throw new Error('Configura un modelo Ollama local.');
+    if (this.activeAbort) throw new Error('Ollama está ocupado.');
+    this.checkRateLimit('gartic-bots', true);
+    const controller = new AbortController(); this.activeAbort = controller;
+    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    try {
+      const res = await fetch(`${this.config.baseUrl.replace(/\/$/, '')}/api/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+        body: JSON.stringify({ model: this.config.selectedModel, prompt: prompt.slice(0, 10000), images, format: 'json', stream: false }) });
+      if (!res.ok) throw new Error('Ollama no pudo responder.');
+      const body = await res.json() as { response?: string };
+      if (!body.response || body.response.length > 80000) throw new Error('Respuesta de IA fuera de límites.');
+      return JSON.parse(body.response);
+    } finally { clearTimeout(timer); if (this.activeAbort === controller) this.activeAbort = null; }
+  }
+
   /**
    * Probes `GET /api/tags` on the local Ollama server ONLY when explicitly triggered
    * by the user in the UI. Never returns fake or placeholder models.
@@ -418,6 +442,7 @@ export class HostOllamaGateway {
       throw new Error(OLLAMA_NOT_DETECTED_MESSAGE);
     }
 
+    if (this.activeAbort) throw new Error('Ollama está ocupado.');
     const controller = new AbortController();
     this.activeAbort = controller;
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
@@ -783,7 +808,6 @@ export class HostOllamaGateway {
   }
 
   deleteDeck(deckId: string, actorId = 'local-host', isHost = true): boolean {
-    if (this.decks.size <= 1) return false;
     const deck = this.decks.get(deckId);
     if (!deck || !this.canEditDeck(deck, actorId, isHost)) return false;
     const deleted = this.decks.delete(deckId);
@@ -842,7 +866,7 @@ export class MultiplayerStudySession {
   private state: MultiplayerStudySessionState;
   private deck: FlashcardDeck;
 
-  constructor(deck: FlashcardDeck, host: { id: string; displayName: string; color: string }) {
+  constructor(deck: FlashcardDeck = { id: 'empty', title: '', topic: '', cards: [], sourceType: 'manual', ownerId: 'local-host', createdAt: 0, updatedAt: 0, provider: 'manual' }, host: { id: string; displayName: string; color: string }) {
     this.deck = deck;
     this.state = {
       sessionId: `study-session:${crypto.randomUUID().slice(0, 8)}`,

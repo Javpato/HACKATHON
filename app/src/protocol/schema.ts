@@ -12,6 +12,7 @@ export const identitySchema = z.strictObject({
   displayName: z.string().trim().min(1).max(40), color,
 });
 export const positionSchema = z.strictObject({
+  areaId: z.enum(['residential', 'community', 'study']).optional(),
   x: z.number().min(0).max(LIMITS.worldWidth), y: z.number().min(0).max(LIMITS.worldHeight),
   direction: z.enum(['up', 'down', 'left', 'right']), moving: z.boolean(),
 });
@@ -19,6 +20,7 @@ export const houseSchema = z.strictObject({
   ownerId: fingerprintSchema, revision: integer, name: z.string().trim().min(1).max(60),
   access: z.enum(['open', 'ask', 'locked']), theme: z.enum(['mint', 'peach']),
   furniture: z.array(z.strictObject({
+    rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional(),
     id: idSchema, kind: z.enum(['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet']),
     x: z.number().min(0).max(736), y: z.number().min(0).max(400), publicAlias: z.string().max(60),
   })).max(LIMITS.furniture),
@@ -39,6 +41,8 @@ export const strokeSchema = z.strictObject({
 const signature = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
 export const signedHouseSchema = z.strictObject({ house: houseSchema, signature });
 export const signedStrokeSchema = z.strictObject({ stroke: strokeSchema, signature });
+export const appChannelSchema = z.enum(['werewolves', 'gartic', 'projects', 'study']);
+const appDataSchema = z.string().min(2).max(LIMITS.appData);
 export const inviteSchema = z.strictObject({
   v: z.literal(1), sessionId: idSchema, epoch: integer.min(1), hostFingerprint: fingerprintSchema,
   endpoint: endpointSchema, generation: integer.min(1), secret: nonce, expiresAt: integer,
@@ -84,6 +88,11 @@ export const payloadSchema = z.discriminatedUnion('type', [
   // Who the sender wants a private call with, or null for public. A private
   // call only opens when two players name each other.
   z.strictObject({ type: z.literal('media.private'), with: fingerprintSchema.nullable() }),
+  // Shared activities (games, group projects). Members address the host,
+  // which delivers to one member (`to`) or everyone (`to: null`) and names
+  // the real sender, so a member can never speak for someone else.
+  z.strictObject({ type: z.literal('app.send'), channel: appChannelSchema, to: fingerprintSchema.nullable(), data: appDataSchema }),
+  z.strictObject({ type: z.literal('app.relay'), channel: appChannelSchema, from: fingerprintSchema, data: appDataSchema }),
 ]);
 export type Payload = z.infer<typeof payloadSchema>;
 export const eventSchema = z.strictObject({
@@ -99,11 +108,11 @@ export const wireSchema = z.discriminatedUnion('kind', [
 ]);
 export type WireMessage = z.infer<typeof wireSchema>;
 /**
- * Where a media call belongs: the open village, one house, or a private pair.
+ * Where a media call belongs: an outdoor area, one house, or a private pair.
  * Receivers only accept calls tagged with the room they are in, so audio can
  * never leak from a house into the village or out of a private conversation.
  */
-export const roomSchema = z.string().regex(/^(village|house:[a-f0-9]{64}|pair:[a-f0-9]{64}:[a-f0-9]{64})$/);
+export const roomSchema = z.string().regex(/^(village|area:(?:residential|community|study)|house:[a-f0-9]{64}|pair:[a-f0-9]{64}:[a-f0-9]{64})$/);
 export const mediaMetadataSchema = z.strictObject({
   v: z.literal(2), kind: z.enum(['audio', 'screen']), sessionId: idSchema,
   epoch: integer.min(1), room: roomSchema, identityId: fingerprintSchema, token: nonce,

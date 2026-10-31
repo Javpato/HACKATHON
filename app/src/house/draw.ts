@@ -493,12 +493,18 @@ export function drawHouseInterior(
     const itemSprite = perItemSprites?.get(item.id) ?? null;
     sprites.push({
       baseline: wallItem ? rect.y : rect.y + rect.h,
-      paint: () => paintFurniture(ctx, item, item.id === selectedId, item.id === nearbyId, time, itemSprite),
+      paint: () => {
+        if (!item.rotation) { paintFurniture(ctx, item, item.id === selectedId, item.id === nearbyId, time, itemSprite); return; }
+        const base = furnitureRect({ ...item, rotation: 0 });
+        ctx.save(); ctx.translate(item.x + rect.w / 2, item.y + rect.h / 2); ctx.rotate(item.rotation * Math.PI / 180); ctx.translate(-base.w / 2, -base.h / 2);
+        paintFurniture(ctx, { ...item, x: 0, y: 0, rotation: 0, publicAlias: '' }, item.id === selectedId, item.id === nearbyId, time, itemSprite); ctx.restore();
+        if (item.publicAlias) text(ctx, item.publicAlias.slice(0,24), item.x+rect.w/2, item.y+rect.h+12, PALETTE.paper[0], 9);
+      },
     });
   }
   for (const person of people) {
     const id = person.identity.fingerprint || person.identity.displayName;
-    const at = trackCharacter(id, person.position, dt, !person.isOwn);
+    const at = trackCharacter(id, person.position, dt, !person.isOwn, `house:${house.ownerId}`);
     sprites.push({
       baseline: at.y,
       paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
@@ -522,4 +528,9 @@ export function drawHouseInterior(
   // Keyed by owner, so stepping from one house into another also reads as a
   // move rather than an instant content swap.
   paintSceneFade(ctx, `house:${house.ownerId}`, W, H, '22,16,10');
+}
+
+export function drawFurniturePreview(ctx: CanvasRenderingContext2D, kind: Furniture['kind']): void {
+  ctx.clearRect(0, 0, 100, 90); ctx.imageSmoothingEnabled = false;
+  paintFurniture(ctx, { id: 'preview', kind, x: 12, y: 10, publicAlias: '' }, false, false, 0);
 }

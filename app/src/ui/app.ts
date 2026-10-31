@@ -1,4 +1,8 @@
+import { DecorationHistory, placementError } from '../house/decoration';
+import { isInScene } from '../world/location';
 import './style.css';
+import './game.css';
+import './theme.css';
 import { loadAvatarSheet, setAvatarSheet } from '../assets/avatar-sheet';
 import {
   LIMITS, type AppActions, type AppView, type BoardPoint, type BoardStroke,
@@ -10,23 +14,21 @@ import {
   importAssetPackJson, setAvatarCustomization, setFurnitureCustomColor,
   setFurnitureCustomSprite, type AvatarAccessory, type HairStyle,
 } from '../assets/custom-assets';
-import { detectLanguage, executeLocalCode, type CodeLanguage } from '../editor/runner';
-import { insertAtSelection, SNIPPETS } from '../editor/snippets';
+import { insertAtSelection } from '../editor/snippets';
 import {
   generateBoardTutorSteps,
   generateBookshelfStudyPack,
-  generateDeskPomodoroPlan,
   generateFurniturePixelSprite,
   recognizeBoardToLatex,
   type AiBookshelfResponse,
 } from '../ai/study-ai';
 import {
-  atHouseDoor, closestFurniture,
+  atHouseDoor, closestFurniture, furnitureRect, HOUSE_BOUNDS, HOUSE_DOOR, houseObstacles,
   FURNITURE_ACTION_LABELS, FURNITURE_KINDS, FURNITURE_LABELS, FURNITURE_PROMPT_LABELS,
   HOUSE_SPAWN, addFurniture, deleteFurniture,
   hitFurniture, moveFurniture, setFurnitureAlias, stepHousePosition,
 } from '../house/model';
-import { drawHouseInterior } from '../house/draw';
+import { drawHouseInterior, drawFurniturePreview } from '../house/draw';
 import {
   BOARD_COLORS, DEFAULT_CAMERA, boardAtCapacity, clampBoardPoint, fitCamera, makeStroke, newestOwnStroke,
   nextSequence, panBy, screenToWorld, strokeHit, strokesBounds, visibleStrokes, zoomAt,
@@ -34,7 +36,7 @@ import {
 } from '../whiteboard/model';
 import { drawBoard, renderBoardForExport, textBox, textFontPx } from '../whiteboard/draw';
 import { getMathGeneration } from '../whiteboard/math';
-import { WORLD_SPAWN, closestDoor, occupiedParcels, pointInRect, stepPosition, worldObstacles } from '../world/model';
+import { WORLD_SPAWN, closestDoor, findPath, occupiedParcels, pointInRect, stepPosition, worldObstacles } from '../world/model';
 import { advanceAnim, drawPrompt, reducedMotion } from './art';
 import { drawWorld, type DrawPerson } from '../world/draw';
 import {
@@ -44,8 +46,12 @@ import {
   houseBoardId, type BoardAccessLevel,
 } from '../whiteboard/boards-registry';
 import { WorldExpansionUIController } from './world-expansion-ui';
+import { monoIcon } from './pixel-icons';
 
-type Pane = 'world' | 'house' | 'board' | 'editor' | 'contacts' | 'diagnostics';
+type Pane = 'world' | 'house' | 'board' | 'contacts' | 'diagnostics';
+type PhonePage = 'home' | 'village' | 'voice' | 'decorate' | 'contacts';
+/** Where to walk to use something, and how to use it once there. */
+type Interaction = { x: number; y: number; near(): boolean; run(): void };
 type DiagnosticKind = Parameters<AppActions['runDiagnostic']>[0];
 type MediaMount = { wrapper: HTMLElement; element: HTMLMediaElement; stream: MediaStream; kind: 'audio' | 'screen' };
 
@@ -84,56 +90,8 @@ function select(options: readonly { value: string; label: string }[]): HTMLSelec
   return element;
 }
 
-/**
- * Pixel icon set for navigation, drawn as rects on a shared 12x12 grid.
- * These replace a row of mismatched Unicode glyphs (a house, a card suit, a
- * command key) that came from unrelated typefaces and never matched the game
- * art. Every icon inherits currentColor, so active and hover states just work.
- */
-const ICON_GRID = 12;
-const ICONS: Record<string, readonly (readonly [number, number, number, number])[]> = {
-  // Built as outlines with real gaps. A solid body with same-coloured detail
-  // drawn on top reads as a featureless blob at 16px, so interior detail here
-  // is negative space instead.
-  // Two rooftops on a ground line: the village.
-  world: [[2, 3, 2, 1], [1, 4, 4, 1], [1, 5, 1, 6], [4, 5, 1, 6], [2, 8, 2, 3],
-    [8, 5, 2, 1], [7, 6, 4, 1], [7, 7, 1, 4], [10, 7, 1, 4],
-    [0, 11, 12, 1]],
-  // One house: roof, two walls, an open doorway.
-  house: [[5, 1, 2, 1], [4, 2, 4, 1], [3, 3, 6, 1], [2, 4, 8, 1],
-    [2, 5, 2, 6], [8, 5, 2, 6], [4, 10, 4, 1], [5, 7, 2, 3]],
-  // An easel: framed sheet with two marks, on a stand.
-  board: [[1, 1, 10, 1], [1, 7, 10, 1], [1, 2, 1, 5], [10, 2, 1, 5],
-    [3, 3, 5, 1], [3, 5, 3, 1], [5, 8, 2, 2], [3, 10, 6, 1]],
-  // A page of code: framed, with three lines of text.
-  editor: [[2, 0, 8, 1], [2, 11, 8, 1], [2, 1, 1, 10], [9, 1, 1, 10],
-    [4, 3, 4, 1], [4, 5, 3, 1], [4, 7, 4, 1]],
-  // Two figures side by side.
-  contacts: [[7, 1, 3, 3], [6, 5, 5, 3], [2, 3, 3, 3], [1, 7, 5, 4]],
-  // A pulse trace.
-  diagnostics: [[0, 6, 3, 1], [3, 4, 1, 3], [4, 2, 1, 2], [5, 2, 1, 6],
-    [6, 7, 1, 2], [7, 6, 1, 2], [8, 6, 4, 1]],
-};
-function icon(name: string): SVGSVGElement {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', `0 0 ${ICON_GRID} ${ICON_GRID}`);
-  svg.setAttribute('width', '16');
-  svg.setAttribute('height', '16');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  svg.setAttribute('fill', 'currentColor');
-  svg.setAttribute('shape-rendering', 'crispEdges');
-  for (const [x, y, w, h] of ICONS[name] || ICONS.house) {
-    const rect = document.createElementNS(ns, 'rect');
-    rect.setAttribute('x', String(x));
-    rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(w));
-    rect.setAttribute('height', String(h));
-    svg.append(rect);
-  }
-  return svg;
-}
+/** Always on the board toolbar; everything else lives under «Más». */
+const MAIN_BOARD_TOOLS: readonly BoardUiTool[] = ['pen', 'text', 'eraser', 'hand'];
 
 function setText(element: HTMLElement, value: string): void {
   if (element.textContent !== value) element.textContent = value;
@@ -170,6 +128,12 @@ class StudyUI {
   private waitingHouseId: string | null = null;
   private selectedFurnitureId: string | null = null;
   private previewHouse: PublicHouse | null = null;
+  private decorating = false;
+  private decorationGrid = true;
+  private pendingFurniture: FurnitureKind | null = null;
+  private decorationInvalid: string | null = null;
+  private decorationToolbar!: HTMLElement;
+  private decorationHistory = new DecorationHistory();
   private drag: { id: string; offsetX: number; offsetY: number; baseHouse: PublicHouse } | null = null;
   private localPosition: Position = { ...WORLD_SPAWN };
   private keys = new Set<string>();
@@ -182,8 +146,6 @@ class StudyUI {
   private hiddenAuthors = new Set<string>();
   private boardDraft: { points: BoardPoint[]; tool: BoardStroke['tool']; color: string; width: number } | null = null;
   private mediaMounts = new Map<string, MediaMount>();
-  private lastEditorFromView = '';
-  private editorDirty = false;
   private lastListsSignature = '';
   private lastLayersSignature = '';
 
@@ -251,15 +213,6 @@ class StudyUI {
   private settingsContent!: HTMLElement;
   private villageName = localStorage.getItem('studyvillage-village-name') || 'La aldea';
   private expansion!: WorldExpansionUIController;
-  private editorPane!: HTMLElement;
-  private editorArea!: HTMLTextAreaElement;
-  private editorStatus!: HTMLElement;
-  private editorOpenButton!: HTMLButtonElement;
-  private editorLangSelect!: HTMLSelectElement;
-  private editorConsole!: HTMLElement;
-  private editorConsoleMeta!: HTMLElement;
-  private editorConsolePre!: HTMLElement;
-  private snippetSelect!: HTMLSelectElement;
   private contactsPane!: HTMLElement;
   private contactsList!: HTMLElement;
   private friendCodeValue!: HTMLElement;
@@ -307,6 +260,9 @@ class StudyUI {
   private spotlightKey: string | null = null;
   private aiBoardPromptInput!: HTMLInputElement;
   private aiBoardBusy = false;
+  private boardAdvancedPanel!: HTMLElement;
+  private boardAdvancedToggle!: HTMLButtonElement;
+  private boardReadOnlyStatus!: HTMLElement;
   private aiSpritePromptInput!: HTMLInputElement;
   private aiSpritePreview!: HTMLImageElement;
   private studyModalOverlay!: HTMLElement;
@@ -321,12 +277,38 @@ class StudyUI {
   private touchActionIcon!: HTMLElement;
   private touchActionLabel!: HTMLElement;
   private touchPttBtn!: HTMLButtonElement;
+  private touchSprint = false;
   private touchToggleBtn!: HTMLButtonElement;
   private touchControlsForced: boolean | null = null;
   private dpadKeys = new Set<string>();
   private moveTarget: { x: number; y: number } | null = null;
+  /** Corners still to walk through after moveTarget, from pathfinding. */
+  private movePath: { x: number; y: number }[] = [];
   private activeBoardPointers = new Map<number, { clientX: number; clientY: number }>();
   private lastPinchDistance = 0;
+  private heading!: HTMLElement;
+  private alerts!: HTMLElement;
+  private villageCard!: HTMLElement;
+  private phone!: HTMLElement;
+  private phoneScreen!: HTMLElement;
+  private phoneTitle!: HTMLElement;
+  private phoneBack!: HTMLButtonElement;
+  private phonePages = new Map<PhonePage, HTMLElement>();
+  private phonePage: PhonePage | null = null;
+  private phoneButton!: HTMLButtonElement;
+  private phoneBadge!: HTMLElement;
+  private phoneHouseTile!: HTMLButtonElement;
+  private decorateHint!: HTMLElement;
+  private hudVoice!: HTMLElement;
+  private hudMic!: HTMLButtonElement;
+  private hudDeafen!: HTMLButtonElement;
+  private hudScreen!: HTMLButtonElement;
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A game, the notes or the projects fill the window: the stage takes no input. */
+  private activityOpen = false;
+  /** Walking towards something that was clicked; used on arrival. */
+  private pendingInteraction: Interaction | null = null;
+  private dragMoved = false;
 
   constructor(root: HTMLElement, actions: AppActions) {
     this.root = root;
@@ -334,20 +316,7 @@ class StudyUI {
     this.expansion = new WorldExpansionUIController({
       getView: () => this.view,
       getCurrentArea: () => this.currentArea,
-      setCurrentArea: (area: BuiltinAreaId) => {
-        const spawn = WORLD_AREAS[area].defaultSpawn;
-        this.currentArea = area;
-        this.localPosition = { ...spawn };
-        this.moveTarget = null;
-        this.lastStageRenderSig = '';
-        if (this.pane !== 'world') {
-          this.leaveCurrentHouse();
-          this.currentArea = area;
-          this.localPosition = { ...spawn };
-        } else {
-          this.refresh();
-        }
-      },
+      setCurrentArea: (area: BuiltinAreaId) => this.changeWorldArea(area, WORLD_AREAS[area].defaultSpawn),
       openBoardById: (boardId, title) => {
         this.customBoardId = boardId;
         this.activeBoardFurnitureId = null;
@@ -370,6 +339,12 @@ class StudyUI {
       requestStageRedraw: () => {
         this.lastStageRenderSig = '';
       },
+      activityChanged: (open) => {
+        this.activityOpen = open;
+        this.stopMoving();
+        if (open) this.closePhone();
+      },
+      actions,
     });
     loadAvatarSheet();
     this.build();
@@ -380,7 +355,9 @@ class StudyUI {
   }
 
   update(view: AppView): void {
+    const justJoined = this.view?.network.phase !== 'JOINED' && view.network.phase === 'JOINED';
     this.view = view;
+    if (justJoined && !this.houseOwnerId) this.actions.move({ ...this.localPosition, areaId: this.currentArea });
     this.pendingStrokes = this.pendingStrokes.filter((stroke) => !view.network.strokes.some((received) => received.id === stroke.id));
     const ownMember = view.network.members.find((member) => member.identity.fingerprint === view.identity.fingerprint);
     if (this.waitingHouseId && ownMember?.houseId === this.waitingHouseId) {
@@ -401,16 +378,18 @@ class StudyUI {
       this.localPosition = { ...WORLD_SPAWN };
     }
     if (this.waitingHouseId && view.network.phase !== 'JOINED') this.waitingHouseId = null;
+    this.expansion.syncSession();
     this.refresh();
   }
 
   destroy(): void {
     cancelAnimationFrame(this.raf);
-    this.expansion.environment.dispose();
+    this.expansion.dispose();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
     this.keys.clear();
+    this.touchSprint = false;
     this.dpadKeys.clear();
     this.moveTarget = null;
     this.activeBoardPointers.clear();
@@ -421,17 +400,7 @@ class StudyUI {
 
   private build(): void {
     this.shell = node('div', 'sv-app');
-    const header = node('header', 'sv-header');
-    const brand = node('div', 'sv-brand');
-    const logo = node('div', 'sv-logo');
-    append(logo, node('span', 'sv-logo-roof'), node('span', 'sv-logo-door'));
-    const wordmark = node('div');
-    append(wordmark, node('strong', 'sv-brand-name', 'studyvillage'), node('span', 'sv-brand-tag', 'un lugar para crear juntos'));
-    append(brand, logo, wordmark);
-    const headerActions = node('div', 'sv-header-actions');
     this.statusBadge = node('span', 'sv-status-pill', 'Sin sesión');
-    const headerHome = button('Mi casa ↗', 'sv-button sv-button-primary');
-    headerHome.addEventListener('click', () => this.enterOwnHouse());
     this.settingsDialog = node('dialog', 'sv-settings-dialog');
     this.settingsDialog.setAttribute('aria-label', 'Ajustes');
     const settingsHead = node('div', 'sv-inline');
@@ -441,22 +410,14 @@ class StudyUI {
     append(settingsHead, settingsTitle, closeSettings);
     this.settingsContent = node('div', 'sv-stack');
     append(this.settingsDialog, settingsHead, this.settingsContent);
-    const settingsButton = button('⚙ Ajustes', 'sv-button sv-settings-button');
-    settingsButton.addEventListener('click', () => { this.keys.clear(); this.dpadKeys.clear(); this.moveTarget = null; this.settingsDialog.showModal(); });
-    append(headerActions, this.statusBadge, headerHome, settingsButton);
-    append(header, brand, headerActions);
 
-    const layout = node('div', 'sv-layout');
-    const sidebar = node('aside', 'sv-sidebar');
     const main = node('main', 'sv-main');
-    const inspector = node('aside', 'sv-inspector');
-    this.buildSidebar(sidebar);
+    const session = node('div', 'sv-phone-section');
+    this.buildSidebar(session);
     this.buildMain(main);
-    this.buildInspector(inspector);
-    append(layout, sidebar, main, inspector);
-    const footer = node('footer', 'sv-footer');
-    append(footer, node('span', '', 'HECHO PARA ESTUDIAR Y COMPARTIR'), node('span', '', 'Archivos y proyectos: solo en tu equipo'));
-    append(this.shell, header, layout, footer, this.settingsDialog);
+    this.buildInspector();
+    this.buildPhone(session);
+    append(this.shell, main, this.buildHud(), this.phone, this.alerts, this.settingsDialog);
     this.root.replaceChildren(this.shell);
 
     this.lockOverlay = node('div', 'sv-lock-overlay');
@@ -487,15 +448,8 @@ class StudyUI {
     this.buildStudyAiModal();
   }
 
-  private buildSidebar(sidebar: HTMLElement): void {
-    const profile = node('section', 'sv-card sv-profile');
-    const eyebrow = node('div', 'sv-eyebrow', 'TU RINCÓN');
-    const profileRow = node('div', 'sv-profile-row');
-    this.profileColor = node('div', 'sv-profile-avatar', '●');
-    const profileInfo = node('div');
-    this.profileName = node('strong', '', 'Tu nombre');
-    append(profileInfo, this.profileName, node('span', 'sv-tiny', 'Identidad local'));
-    append(profileRow, this.profileColor, profileInfo);
+  /** Profile settings (into Ajustes) and the connect/invite controls (into the phone). */
+  private buildSidebar(sessionHost: HTMLElement): void {
     const profileForm = node('form', 'sv-stack sv-profile-form');
     this.nameInput = node('input', 'sv-input');
     this.nameInput.maxLength = 32;
@@ -595,7 +549,6 @@ class StudyUI {
     append(customizer, summary, assetGrid, packRow, field('Cuadrícula PNG del personaje', avatarFile),
       node('p', 'sv-subtle', '3 columnas de animación y 4 filas: abajo, izquierda, derecha, arriba. Se guarda en este equipo.'), resetAvatar);
 
-    append(profile, eyebrow, profileRow);
     const villageNameInput = node('input', 'sv-input');
     villageNameInput.maxLength = 48;
     villageNameInput.value = this.villageName;
@@ -612,27 +565,10 @@ class StudyUI {
     this.settingsDialog.addEventListener('toggle', () => { houseName.value = this.view?.ownHouse.name || ''; });
     append(this.settingsContent, node('h3', '', 'Tu espacio'), field('Nombre del vecindario (en este equipo)', villageNameInput), field('Nombre de tu casa', houseName), profileForm, customizer);
 
-    const nav = node('nav', 'sv-nav');
-    nav.setAttribute('aria-label', 'Secciones');
-    const entries: [Pane, string][] = [
-      ['world', 'La aldea'], ['house', 'Mi casa'],
-      ['contacts', 'Contactos'],
-    ];
-    for (const [pane, title] of entries) {
-      const item = button('', 'sv-nav-item');
-      const glyph = node('span', 'sv-nav-icon');
-      glyph.append(icon(pane));
-      append(item, glyph, node('span', '', title));
-      item.addEventListener('click', () => this.navigate(pane));
-      this.navButtons.set(pane, item);
-      nav.append(item);
-    }
-
-    const session = node('section', 'sv-card sv-session-card');
-    append(session, node('div', 'sv-eyebrow', 'SESIÓN'), node('h3', '', 'Conectar la aldea'));
+    const session = node('section', 'sv-session-card');
     this.phaseText = node('p', 'sv-subtle', 'Sin sesión');
     session.append(this.phaseText);
-    this.openButton = button('Abrir mi aldea', 'sv-button sv-button-primary sv-wide');
+    this.openButton = button('Abrir mi aldea a otras personas', 'sv-button sv-button-primary sv-wide');
     this.openButton.addEventListener('click', () => this.run(() => this.actions.openVillage()));
     this.joinInput = node('input', 'sv-input');
     this.joinInput.placeholder = 'Pega una invitación';
@@ -660,8 +596,187 @@ class StudyUI {
       if (this.view?.network.isHost && !window.confirm('¿Cerrar el vecindario para todas las personas? Tu casa y tus archivos locales se conservan.')) return;
       this.run(() => this.actions.leave());
     });
-    append(session, this.openButton, joinForm, this.inviteBox, this.leaveButton);
-    append(sidebar, profile, nav, session);
+    append(session, this.openButton, node('p', 'sv-divider-text', 'o únete a la de alguien'), joinForm, this.inviteBox, this.leaveButton);
+    sessionHost.append(session);
+  }
+
+  /**
+   * The phone: one button opens every app, the way a life-sim handheld does.
+   * Nothing else sits around the village, so the world stays the focus.
+   */
+  private buildPhone(sessionControls: HTMLElement): void {
+    this.phone = node('div', 'sv-phone');
+    this.phone.hidden = true;
+    this.phone.addEventListener('click', (event) => { if (event.target === this.phone) this.closePhone(); });
+    this.phoneScreen = node('section', 'sv-phone-screen');
+    this.phoneScreen.setAttribute('role', 'dialog');
+    this.phoneScreen.setAttribute('aria-label', 'Menú');
+    const head = node('header', 'sv-phone-head');
+    this.phoneBack = button('', 'sv-phone-icon-btn');
+    this.phoneBack.append(monoIcon('back', 14));
+    this.phoneBack.setAttribute('aria-label', 'Volver');
+    this.phoneBack.addEventListener('click', () => this.openPhone('home'));
+    this.phoneTitle = node('h2', 'sv-phone-title', 'Menú');
+    const close = button('', 'sv-phone-icon-btn');
+    close.append(monoIcon('close', 12));
+    close.setAttribute('aria-label', 'Cerrar menú');
+    close.addEventListener('click', () => this.closePhone());
+    append(head, this.phoneBack, this.phoneTitle, close);
+
+    const home = node('div', 'sv-phone-page sv-phone-home');
+    const me = node('div', 'sv-phone-me');
+    this.profileColor = node('div', 'sv-profile-avatar');
+    this.profileName = node('strong', '', 'Tu nombre');
+    const meText = node('div');
+    append(meText, this.profileName, this.statusBadge);
+    append(me, this.profileColor, meText);
+    const grid = node('div', 'sv-app-grid');
+    const tile = (label: string, iconName: string, hue: string, onClick: () => void, testid?: string) => {
+      const item = button('', 'sv-app-tile');
+      item.style.setProperty('--tile', hue);
+      const face = node('span', 'sv-app-icon');
+      face.append(monoIcon(iconName, 26));
+      append(item, face, node('span', 'sv-app-label', label));
+      if (testid) item.dataset.testid = testid;
+      item.addEventListener('click', onClick);
+      grid.append(item);
+      return item;
+    };
+    this.phoneHouseTile = tile('Mi casa', 'house', '#e8894f', () => {
+      this.closePhone();
+      if (this.pane === 'house' && this.houseOwnerId === this.view?.identity.fingerprint) this.leaveCurrentHouse();
+      else this.enterOwnHouse();
+    }, 'phone-house');
+    tile('Aldea', 'world', '#5fa36b', () => this.openPhone('village'), 'phone-village');
+    tile('Voz', 'mic', '#d9667f', () => this.openPhone('voice'), 'phone-voice');
+    tile('Proyectos', 'code', '#4c7fd1', () => { this.closePhone(); this.expansion.openActivity('projects'); }, 'phone-projects');
+    tile('Apuntes', 'notes', '#d9a640', () => { this.closePhone(); this.expansion.openActivity('notes'); }, 'phone-notes');
+    tile('Tarjetas', 'cards', '#8c6bc4', () => { this.closePhone(); this.openStudyAiModal(); }, 'phone-cards');
+    tile('Decorar', 'brush', '#3fa3a0', () => {
+      if (this.houseOwnerId !== this.view?.identity.fingerprint || this.pane !== 'house') this.enterOwnHouse();
+      this.openPhone('decorate');
+    }, 'phone-decorate');
+    tile('Contactos', 'contacts', '#c9654f', () => this.openPhone('contacts'), 'phone-contacts');
+    tile('Ajustes', 'gear', '#7c8a7a', () => { this.closePhone(); this.settingsDialog.showModal(); }, 'phone-settings');
+    append(home, me, grid);
+
+    const village = node('div', 'sv-phone-page');
+    append(village, sessionControls, this.villageCard);
+    const voice = node('div', 'sv-phone-page');
+    voice.append(this.mediaBox);
+    const decorate = node('div', 'sv-phone-page');
+    this.decorateHint = node('p', 'sv-subtle', 'Entra en tu casa para decorarla.');
+    append(decorate, this.decorateHint, this.houseEditBox);
+    const contacts = node('div', 'sv-phone-page');
+    contacts.append(this.contactsPane);
+    this.phonePages = new Map<PhonePage, HTMLElement>([['home', home], ['village', village], ['voice', voice], ['decorate', decorate], ['contacts', contacts]]);
+    append(this.phoneScreen, head, ...this.phonePages.values());
+    this.phone.append(this.phoneScreen);
+  }
+
+  private openPhone(page: PhonePage = 'home'): void {
+    const titles: Record<PhonePage, string> = { home: 'Menú', village: 'Aldea', voice: 'Voz y pantalla', decorate: 'Decorar mi casa', contacts: 'Contactos' };
+    this.expansion.closeModal();
+    this.phonePage = page;
+    this.phone.hidden = false;
+    this.phone.dataset.page = page;
+    this.stopMoving();
+    setText(this.phoneTitle, titles[page]);
+    show(this.phoneBack, page !== 'home');
+    for (const [key, el] of this.phonePages) show(el, key === page);
+    this.refresh();
+  }
+
+  private closePhone(): void {
+    if (this.phone.hidden) return;
+    this.phone.hidden = true;
+    this.phonePage = null;
+    // Hand the keyboard back to the world (not to the Menú button, where Space would reopen it).
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && (this.phone.contains(focused) || focused === this.phoneButton)) focused.blur();
+  }
+
+  private stopMoving(): void {
+    this.keys.clear();
+    this.touchSprint = false;
+    this.dpadKeys.clear();
+    this.moveTarget = null;
+    this.movePath = [];
+    this.pendingInteraction = null;
+  }
+
+  /** Corners only: where you are, who is here, your voice, and the phone. */
+  private buildHud(): HTMLElement {
+    const hud = node('div', 'sv-hud');
+    const topLeft = node('div', 'sv-hud-place');
+    topLeft.append(this.heading);
+    // Requests to come in sit above everything, even an open phone.
+    this.alerts = node('div', 'sv-hud-top-right');
+    this.approvalBox.classList.add('sv-hud-card');
+    this.alerts.append(this.approvalBox);
+    this.noticeBox.classList.add('sv-hud-toast');
+
+    this.hudVoice = node('div', 'sv-hud-voice');
+    this.hudVoice.setAttribute('role', 'group');
+    this.hudVoice.setAttribute('aria-label', 'Voz rápida');
+    const quick = (iconName: string, label: string, onClick: () => void) => {
+      const item = button('', 'sv-hud-round');
+      item.append(monoIcon(iconName, 18));
+      item.setAttribute('aria-label', label);
+      item.title = label;
+      item.addEventListener('click', onClick);
+      this.hudVoice.append(item);
+      return item;
+    };
+    this.hudMic = quick('micOff', 'Micrófono', () => {
+      const media = this.view?.network.media;
+      if (!media) return;
+      if (!media.micEnabled) this.run(() => this.actions.toggleMicrophone());
+      else this.actions.setMuted(!media.muted);
+    });
+    this.hudDeafen = quick('headphones', 'Dejar de escuchar', () => { if (this.view) this.actions.setDeafened(!this.view.network.media.deafened); });
+    this.hudScreen = quick('screen', 'Compartir pantalla', () => {
+      const phase = this.view?.network.media.screenPhase;
+      if (phase && ['REQUESTING_OS_PERMISSION', 'CAPTURING_LOCAL', 'NEGOTIATING', 'SENDING'].includes(phase)) this.actions.stopScreen();
+      else this.run(() => this.actions.startScreen());
+    });
+
+    this.phoneButton = button('', 'sv-phone-button');
+    this.phoneButton.dataset.testid = 'phone-button';
+    this.phoneButton.setAttribute('aria-label', 'Abrir menú (M)');
+    this.phoneButton.title = 'Menú (M)';
+    this.phoneBadge = node('span', 'sv-phone-badge');
+    this.phoneBadge.hidden = true;
+    append(this.phoneButton, monoIcon('phone', 24), node('span', 'sv-phone-button-label', 'Menú'), this.phoneBadge);
+    this.phoneButton.addEventListener('click', () => (this.phone.hidden ? this.openPhone('home') : this.closePhone()));
+    append(hud, topLeft, this.noticeBox, this.hudVoice, this.phoneButton);
+    return hud;
+  }
+
+  private refreshHud(): void {
+    const view = this.view!;
+    const media = view.network.media;
+    const joined = view.network.phase === 'JOINED';
+    const here = view.network.members.filter((member) => member.connected).length;
+    setText(this.statusBadge, joined ? `${here} ${here === 1 ? 'persona' : 'personas'} en la aldea` : PHASE_LABEL[view.network.phase]);
+    const requests = (view.network.isHost ? view.network.pendingJoins.length : 0)
+      + view.network.pendingVisits.filter((request) => request.houseId === view.identity.fingerprint).length;
+    show(this.phoneBadge, requests > 0);
+    setText(this.phoneBadge, String(requests));
+    const inOwnHouse = this.pane === 'house' && this.houseOwnerId === view.identity.fingerprint;
+    setText(this.phoneHouseTile.querySelector('.sv-app-label')!, inOwnHouse ? 'Salir' : 'Mi casa');
+    show(this.hudVoice, joined && (this.pane === 'world' || this.pane === 'house'));
+    const micLive = media.micEnabled && !media.muted;
+    this.hudMic.replaceChildren(monoIcon(micLive ? 'mic' : 'micOff', 18));
+    this.hudMic.classList.toggle('is-on', micLive);
+    this.hudMic.title = !media.micEnabled ? 'Activar micrófono' : media.muted ? 'Quitar silencio' : 'Silenciar';
+    this.hudMic.setAttribute('aria-pressed', String(micLive));
+    this.hudDeafen.classList.toggle('is-off', media.deafened);
+    this.hudDeafen.setAttribute('aria-pressed', String(media.deafened));
+    const sharing = ['REQUESTING_OS_PERMISSION', 'CAPTURING_LOCAL', 'NEGOTIATING', 'SENDING'].includes(media.screenPhase);
+    this.hudScreen.classList.toggle('is-on', sharing);
+    this.hudScreen.title = sharing ? 'Dejar de compartir pantalla' : 'Compartir pantalla';
+    show(this.decorateHint, !inOwnHouse);
   }
 
   private buildMain(main: HTMLElement): void {
@@ -679,15 +794,17 @@ class StudyUI {
     const headingCopy = node('div');
     this.title = node('h1', '', 'La aldea');
     this.subtitle = node('p', 'sv-subtle', 'Un espacio tranquilo para estudiar a tu ritmo.');
-    append(headingCopy, node('div', 'sv-eyebrow', 'STUDYVILLAGE · TU ESPACIO'), this.title, this.subtitle);
+    append(headingCopy, this.title, this.subtitle);
     // Context action: from the board it returns to the room you were in, so
     // opening the board never strands you outside a friend's house.
-    this.headingAction = button('Ir a mi casa →', 'sv-button sv-button-outline');
+    this.headingAction = button('', 'sv-hud-back');
     this.headingAction.addEventListener('click', () => {
       if (this.pane === 'board' && this.houseOwnerId) this.returnToRoom();
-      else this.enterOwnHouse();
+      else if (this.pane === 'board') this.navigate('world');
+      else this.leaveCurrentHouse();
     });
-    append(heading, headingCopy, this.headingAction);
+    append(heading, this.headingAction, headingCopy);
+    this.heading = heading;
 
     // Expandable Screen-Share Theater Dock
     this.screenTheater = node('section', 'sv-screen-theater');
@@ -721,32 +838,41 @@ class StudyUI {
     this.stageCanvas.addEventListener('pointermove', this.onStagePointerMove);
     this.stageCanvas.addEventListener('pointerup', this.onStagePointerUp);
     this.stageCanvas.addEventListener('pointercancel', this.onStagePointerUp);
-    this.stageCanvas.addEventListener('dblclick', this.onStageDoubleClick);
     append(stageWrap, this.stageCanvas);
     this.buildTouchControls(stageWrap);
-    const stageHint = node('div', 'sv-stage-hint');
-    append(stageHint, node('span', 'sv-keycap', 'W A S D / Táctil'), node('span', '', 'Muévete'),
-      node('span', 'sv-keycap', 'E / Botón'), node('span', '', 'Interactuar'),
-      node('span', 'sv-keycap', '2× Clic / Toque'), node('span', '', 'Usar mueble'));
-    append(this.canvasPane, stageWrap, stageHint);
+    append(this.canvasPane, stageWrap);
     this.expansion.mountStageControls(this.settingsContent, this.shell);
 
     this.buildBoard();
-    this.buildEditor();
-    this.expansion.mountProjectWorkspaceInEditor(this.editorPane, this.editorArea, this.editorLangSelect);
     this.buildContacts();
     this.buildDiagnostics();
-    append(main, this.noticeBox, heading, this.screenTheater, this.canvasPane, this.boardPane, this.editorPane, this.contactsPane, this.diagnosticsPane);
+    append(main, this.screenTheater, this.canvasPane, this.boardPane, this.diagnosticsPane);
   }
 
   private buildBoard(): void {
     this.boardPane = node('section', 'sv-panel sv-board-pane');
-    const toolbar = node('div', 'sv-toolbar');
+    const toolbar = node('div', 'sv-toolbar sv-board-primary');
+    toolbar.setAttribute('role', 'group');
+    toolbar.setAttribute('aria-label', 'Herramientas de pizarra');
     const tools = node('div', 'sv-segment');
+    const extraTools = node('div', 'sv-segment sv-board-extra-tools');
+    this.boardAdvancedPanel = node('section', 'sv-board-options-panel');
+    this.boardAdvancedPanel.id = 'board-advanced-options';
+    this.boardAdvancedPanel.setAttribute('aria-label', 'Opciones avanzadas de pizarra');
+    this.boardAdvancedPanel.hidden = true;
+    this.boardAdvancedToggle = button('Más', 'sv-button sv-button-small sv-board-more');
+    this.boardAdvancedToggle.setAttribute('aria-label', 'Opciones avanzadas');
+    this.boardAdvancedToggle.setAttribute('aria-expanded', 'false');
+    this.boardAdvancedToggle.setAttribute('aria-controls', this.boardAdvancedPanel.id);
+    this.boardAdvancedToggle.addEventListener('click', () => {
+      this.commitBoardText();
+      this.boardAdvancedPanel.hidden = !this.boardAdvancedPanel.hidden;
+      this.boardAdvancedToggle.setAttribute('aria-expanded', String(!this.boardAdvancedPanel.hidden));
+    });
     const labels: [BoardUiTool, string, string][] = [
-      ['hand', 'Mano', 'Mover la vista (también: botón central o rueda)'],
-      ['pen', 'Lápiz', 'Dibujo libre'], ['line', 'Línea', 'Línea recta'], ['rectangle', 'Rectángulo', 'Rectángulo'],
-      ['text', 'Texto / LaTeX', 'Texto y fórmulas: escribe $x^2$ para LaTeX'], ['eraser', 'Borrador', 'Borra tus propios trazos pasando por encima'],
+      ['pen', 'Lápiz', 'Dibujo libre'], ['text', 'Texto', 'Texto y fórmulas: escribe $x^2$ para LaTeX'],
+      ['eraser', 'Borrador', 'Borra tus propios trazos pasando por encima'], ['hand', 'Mano', 'Mover la vista (también: botón central o rueda)'],
+      ['line', 'Línea', 'Línea recta'], ['rectangle', 'Rectángulo', 'Rectángulo'],
     ];
     for (const [tool, label, hint] of labels) {
       const item = button(label, 'sv-segment-button');
@@ -758,7 +884,7 @@ class StudyUI {
         this.refreshBoardControls();
       });
       this.boardToolButtons.set(tool, item);
-      tools.append(item);
+      (MAIN_BOARD_TOOLS.includes(tool) ? tools : extraTools).append(item);
     }
     const richLabels: ['circle' | 'arrow', string, string][] = [
       ['circle', 'Círculo', 'Dibuja un círculo en la pizarra'],
@@ -774,7 +900,7 @@ class StudyUI {
         this.refreshBoardControls();
       });
       this.richToolButtons.set(rTool, item);
-      tools.append(item);
+      extraTools.append(item);
     }
     this.boardNameInput = node('input', 'sv-input');
     this.boardNameInput.maxLength = 40;
@@ -829,7 +955,7 @@ class StudyUI {
     });
     this.boardColor = node('input', 'sv-color-input');
     this.boardColor.type = 'color';
-    this.boardColor.value = BOARD_COLORS[0];
+    this.boardColor.value = '#1d1d1f';
     this.boardColor.setAttribute('aria-label', 'Color del trazo');
     this.boardColor.addEventListener('input', () => this.refreshBoardSwatches());
     const swatchRow = node('div', 'sv-swatch-row');
@@ -849,7 +975,9 @@ class StudyUI {
 
     this.boardWidth = select([{ value: '2', label: 'Fino' }, { value: '4', label: 'Medio' }, { value: '8', label: 'Grueso' }]);
     this.boardWidth.setAttribute('aria-label', 'Grosor del trazo');
-    this.boardUndoButton = button('↶ Deshacer', 'sv-button sv-button-small');
+    this.boardUndoButton = button('↶', 'sv-button sv-button-small');
+    this.boardUndoButton.setAttribute('aria-label', '↶ Deshacer');
+    this.boardUndoButton.title = 'Deshacer';
     this.boardUndoButton.addEventListener('click', () => this.undoStroke());
     this.boardRedoButton = button('↷ Rehacer', 'sv-button sv-button-small');
     this.boardRedoButton.dataset.testid = 'board-redo-btn';
@@ -878,8 +1006,7 @@ class StudyUI {
     fit.title = 'Encuadrar todo lo dibujado';
     fit.addEventListener('click', () => this.fitBoard());
     append(zoom, zoomOut, this.boardZoomLabel, zoomIn, fit);
-    append(toolbar, this.boardNameInput, this.boardAccessSelect, tools, this.boardColor, swatchRow, this.boardWidth, this.boardUndoButton, this.boardRedoButton, this.boardClearButton, zoom);
-
+    append(toolbar, tools, this.boardColor, this.boardUndoButton, this.boardAdvancedToggle);
     // Quick LaTeX & Gemini Study Canvas Bar
     const latexBar = node('div', 'sv-latex-bar');
     append(latexBar, node('span', 'sv-field-label', 'Inserción rápida LaTeX y estudio:'));
@@ -949,82 +1076,32 @@ class StudyUI {
     const exportButton = button('↓ Exportar PNG', 'sv-button sv-button-small');
     exportButton.addEventListener('click', () => this.exportBoard());
     append(exportGroup, this.boardExportMode, exportButton);
-    append(bottom, this.boardStatus, exportGroup);
+    append(bottom, this.boardStatus);
     this.boardLayers = node('div', 'sv-layers');
     const hint = node('p', 'sv-tiny sv-board-hint',
       'Rueda: desplazar · Ctrl + rueda: zoom · Texto: haz clic en cualquier punto o usa los botones LaTeX ($\\frac{a}{b}$) · Borrador: arrastra sobre tus trazos.');
-    append(this.boardPane, toolbar, wrap, latexBar, aiBoardBar, hint, bottom, node('h3', 'sv-section-title', 'Capas por autor'), this.boardLayers);
-  }
-
-  private buildEditor(): void {
-    this.editorPane = node('section', 'sv-panel sv-editor-pane');
-    const top = node('div', 'sv-editor-top');
-    const copy = node('div');
-    append(copy, node('div', 'sv-eyebrow', 'SOLO EN TU EQUIPO · EJECUCIÓN LOCAL'), node('h2', '', 'Tu cuaderno de código'),
-      node('p', 'sv-subtle', 'Escribe y ejecuta TypeScript/JS, Python o C++ directamente en tu equipo. El código nunca sale de tu máquina.'));
-    const topActions = node('div', 'sv-inline');
-    const deskPlanBtn = button('✨ Plan 25m IA', 'sv-button sv-button-small sv-button-primary');
-    deskPlanBtn.dataset.testid = 'ai-desk-plan-btn';
-    deskPlanBtn.title = 'Escritorio IA: Genera una lista Pomodoro de 25 minutos a partir de tus apuntes';
-    deskPlanBtn.addEventListener('click', () => this.runDeskStudyPlanner());
-    const bookshelfQuizBtn = button('✨ Tarjetas y Quiz IA', 'sv-button sv-button-small');
-    bookshelfQuizBtn.dataset.testid = 'ai-bookshelf-quiz-btn';
-    bookshelfQuizBtn.title = 'Librería IA: Genera tarjetas de memoria (flashcards) y autoevaluación interactiva';
-    bookshelfQuizBtn.addEventListener('click', () => this.openStudyAiModal());
-    this.editorOpenButton = button('Abrir archivo local', 'sv-button sv-button-outline');
-    this.editorOpenButton.addEventListener('click', () => this.openEditorFile());
-    append(topActions, deskPlanBtn, bookshelfQuizBtn, this.editorOpenButton);
-    append(top, copy, topActions);
-    this.editorArea = node('textarea', 'sv-editor-area');
-    this.editorArea.spellcheck = false;
-    this.editorArea.setAttribute('aria-label', 'Editor local');
-    this.editorArea.placeholder = 'Escribe apuntes o código en TypeScript, Python o C++ y pulsa «▶ Ejecutar código» (Ctrl+Enter)…';
-    this.editorArea.addEventListener('input', () => { this.editorDirty = true; this.refreshEditorStatus(); });
-    this.editorArea.addEventListener('keydown', (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        event.preventDefault();
-        this.runEditorCode();
-      }
-    });
-    this.editorStatus = node('span', 'sv-subtle', 'Sin cambios');
-    this.editorLangSelect = select([
-      { value: 'auto', label: 'Lenguaje: Auto' },
-      { value: 'typescript', label: 'TypeScript / JS' },
-      { value: 'python', label: 'Python 3 (local)' },
-      { value: 'cpp', label: 'C++ (local)' },
-    ]);
-    this.editorLangSelect.setAttribute('aria-label', 'Lenguaje de ejecución');
-    const runCodeButton = button('▶ Ejecutar código', 'sv-button sv-button-primary');
-    runCodeButton.title = 'Ejecutar código localmente (Ctrl + Enter)';
-    runCodeButton.addEventListener('click', () => this.runEditorCode());
-    this.snippetSelect = select(SNIPPETS.map((item) => ({ value: item.id, label: item.label })));
-    this.snippetSelect.setAttribute('aria-label', 'Plantilla para insertar');
-    const insertButton = button('Insertar plantilla', 'sv-button sv-button-small');
-    insertButton.addEventListener('click', () => this.insertSnippet());
-    const saveButton = button('Guardar', 'sv-button sv-button-outline');
-    saveButton.addEventListener('click', () => {
-      const content = this.editorArea.value;
-      this.run(async () => { await this.actions.saveEditor(content); this.editorDirty = false; this.refreshEditorStatus(); });
-    });
-    const exportButton = button('Exportar copia', 'sv-button sv-button-outline');
-    exportButton.addEventListener('click', () => this.run(() => this.actions.exportEditor(this.editorArea.value)));
-    const footer = node('div', 'sv-editor-actions');
-    append(footer, this.editorStatus, this.editorLangSelect, runCodeButton, this.snippetSelect, insertButton, exportButton, saveButton);
-
-    this.editorConsole = node('div', 'sv-editor-console');
-    const consoleHead = node('div', 'sv-editor-console-head');
-    this.editorConsoleMeta = node('span', '', 'CONSOLA LOCAL · LISTA PARA EJECUTAR (TS / PYTHON / C++)');
-    const clearConsoleBtn = button('Limpiar salida', 'sv-link-button');
-    clearConsoleBtn.style.color = '#9ec2a4';
-    clearConsoleBtn.addEventListener('click', () => {
-      setText(this.editorConsolePre, 'Consola limpia. Pulsa «▶ Ejecutar código» para probar tu programa.');
-      this.editorConsolePre.classList.remove('is-error');
-    });
-    append(consoleHead, this.editorConsoleMeta, clearConsoleBtn);
-    this.editorConsolePre = node('pre', 'sv-editor-console-pre', 'Pulsa «▶ Ejecutar código» o Ctrl+Enter para ejecutar TypeScript/JS, Python o C++ localmente.');
-    append(this.editorConsole, consoleHead, this.editorConsolePre);
-
-    append(this.editorPane, top, this.editorArea, footer, this.editorConsole);
+    const category = (title: string, ...children: HTMLElement[]): HTMLDetailsElement => {
+      const group = node('details', 'sv-board-option-group sv-board-category');
+      group.name = 'board-options-category';
+      const summary = node('summary', '', title);
+      const content = node('div', 'sv-board-category-content');
+      append(content, ...children);
+      append(group, summary, content);
+      return group;
+    };
+    append(this.boardAdvancedPanel,
+      category('Formas', extraTools),
+      category('Trazo y edición', swatchRow, field('Grosor', this.boardWidth), this.boardRedoButton, this.boardClearButton),
+      category('Vista', zoom, hint),
+      category('Fórmulas', latexBar),
+      category('Asistente IA', aiBoardBar),
+      category('Capas', this.boardLayers, bottom),
+      category('Pizarra y archivo', field('Nombre', this.boardNameInput), field('Permisos', this.boardAccessSelect), exportGroup),
+    );
+    this.boardReadOnlyStatus = node('p', 'sv-board-readonly');
+    this.boardReadOnlyStatus.setAttribute('role', 'status');
+    this.boardReadOnlyStatus.hidden = true;
+    append(this.boardPane, toolbar, this.boardAdvancedPanel, this.boardReadOnlyStatus, wrap);
   }
 
   private buildContacts(): void {
@@ -1080,9 +1157,8 @@ class StudyUI {
     append(this.diagnosticsPane, controls, standalone, this.diagnosticList);
   }
 
-  private buildInspector(inspector: HTMLElement): void {
-    const context = node('section', 'sv-card sv-context-card');
-    append(context, node('div', 'sv-eyebrow', 'AHORA MISMO'));
+  private buildInspector(): void {
+    const context = node('section', 'sv-context-card');
     this.contextTitle = node('h3');
     this.contextText = node('p', 'sv-subtle');
     append(context, this.contextTitle, this.contextText);
@@ -1090,15 +1166,16 @@ class StudyUI {
     this.peopleList = node('div', 'sv-people-list');
     append(context, this.housesList, this.peopleList);
 
-    this.approvalBox = node('section', 'sv-card sv-approval-card');
-    append(this.approvalBox, node('div', 'sv-eyebrow', 'SOLICITUDES'), node('h3', '', 'Llaman a la puerta'));
+    this.approvalBox = node('section', 'sv-approval-card');
+    this.approvalBox.setAttribute('role', 'status');
+    append(this.approvalBox, node('strong', 'sv-approval-title', 'Llaman a la puerta'));
     this.approvalList = node('div', 'sv-approval-list');
     this.approvalBox.append(this.approvalList);
 
     this.buildHouseEditor();
     this.buildMedia();
-    const identityCard = node('section', 'sv-card');
-    append(identityCard, node('div', 'sv-eyebrow', 'IDENTIDAD'), node('h3', '', 'Guardar protegida'));
+    const identityCard = node('section', 'sv-stack');
+    append(identityCard, node('h3', '', 'Identidad protegida'));
     this.unlockToggleButton = button('Desbloquear identidad', 'sv-button sv-button-small');
     this.unlockToggleButton.addEventListener('click', () => { this.lockDismissed = false; this.refresh(); this.unlockInput.focus(); });
     identityCard.append(this.unlockToggleButton);
@@ -1120,12 +1197,14 @@ class StudyUI {
       this.saveIdentityInput.value = '';
     });
     identityCard.append(saveForm);
-    append(inspector, context, this.approvalBox, this.houseEditBox, this.mediaBox, identityCard);
+    this.villageCard = context;
+    const diagnostics = node('a', 'sv-link-button', 'Diagnóstico de micrófono y pantalla');
+    diagnostics.href = '?diagnostic=1';
+    append(this.settingsContent, identityCard, node('h3', '', 'Ayuda'), diagnostics);
   }
 
   private buildHouseEditor(): void {
-    this.houseEditBox = node('section', 'sv-card sv-house-editor');
-    append(this.houseEditBox, node('div', 'sv-eyebrow', 'DECORA TU ESPACIO'), node('h3', '', 'Mi casa'));
+    this.houseEditBox = node('section', 'sv-house-editor');
     this.houseNameInput = node('input', 'sv-input');
     this.houseNameInput.maxLength = 32;
     this.houseNameInput.addEventListener('change', () => this.patchOwnHouse({ name: this.houseNameInput.value.trim().slice(0, 32) || 'Mi casa' }));
@@ -1147,7 +1226,7 @@ class StudyUI {
       if (!view) return;
       const house = addFurniture(view.ownHouse, this.furnitureKindSelect.value as FurnitureKind, view.identity.fingerprint, crypto.randomUUID());
       if (house === view.ownHouse) this.notify('La casa ya tiene el máximo de 32 muebles.');
-      else { this.selectedFurnitureId = house.furniture[house.furniture.length - 1].id; this.actions.updateOwnHouse(house); }
+      else { this.selectedFurnitureId = house.furniture[house.furniture.length - 1].id; this.commitDecoration(house, this.selectedFurnitureId); }
     });
     const addRow = node('div', 'sv-inline');
     append(addRow, this.furnitureKindSelect, addButton);
@@ -1241,7 +1320,7 @@ class StudyUI {
     const aiSpriteRow = node('div', 'sv-ai-sprite-row');
     this.aiSpritePromptInput = node('input', 'sv-input');
     this.aiSpritePromptInput.maxLength = 48;
-    this.aiSpritePromptInput.placeholder = 'Ej. Bonsái luminoso, gato lector, lámpara…';
+    this.aiSpritePromptInput.placeholder = 'Describe el aspecto del mueble';
     this.aiSpritePromptInput.setAttribute('aria-label', 'Descripción para generar sprite pixel-art');
     this.aiSpritePromptInput.dataset.testid = 'ai-sprite-prompt';
     const aiSpriteBtn = button('✨ Sprite IA', 'sv-button sv-button-small sv-button-primary');
@@ -1257,10 +1336,7 @@ class StudyUI {
     const houseQuizBtn = button('📚 Tarjetas / Quiz IA', 'sv-button sv-button-small');
     houseQuizBtn.title = 'Abrir estudio de tarjetas y autoevaluación IA de la librería';
     houseQuizBtn.addEventListener('click', () => this.openStudyAiModal());
-    const housePlanBtn = button('⏱️ Plan 25m IA', 'sv-button sv-button-small');
-    housePlanBtn.title = 'Generar plan Pomodoro de 25 minutos en el escritorio';
-    housePlanBtn.addEventListener('click', () => this.runDeskStudyPlanner());
-    append(furnitureAiRow, houseQuizBtn, housePlanBtn);
+    append(furnitureAiRow, houseQuizBtn);
     append(aiSpriteBox, aiSpriteHead, aiSpriteRow, furnitureAiRow);
 
     const deleteButton = button('Quitar mueble', 'sv-link-button sv-danger-text');
@@ -1268,20 +1344,45 @@ class StudyUI {
       const view = this.view;
       if (!view || !this.selectedFurnitureId) return;
       const updated = deleteFurniture(view.ownHouse, this.selectedFurnitureId, view.identity.fingerprint);
-      if (updated !== view.ownHouse) this.actions.updateOwnHouse(updated);
+      if (updated !== view.ownHouse) this.commitDecoration(updated, this.selectedFurnitureId);
       this.selectedFurnitureId = null;
       this.refresh();
     });
     append(this.furnitureDetail, this.furnitureUseButton, field('Alias visible para todos', this.aliasInput),
       node('span', 'sv-field-label', 'Aspecto modificable (color / PNG)'), customRow, aiSpriteBox, deleteButton);
-    append(this.houseEditBox, furnitureHeader, this.furnitureList, addRow, this.furnitureDetail,
-      node('p', 'sv-tiny', 'Acércate y pulsa E (o haz doble clic) para usar cada mueble. Arrástralos para decorar.'));
+    const enterDecor = button('Decorar en la habitación', 'sv-button sv-button-primary');
+    enterDecor.onclick = () => this.beginDecoration();
+    const catalog = node('div', 'sv-furniture-catalog');
+    for (const kind of FURNITURE_KINDS) {
+      const tile = button('', 'sv-button'); tile.setAttribute('aria-label', `Colocar ${FURNITURE_LABELS[kind]}`);
+      const canvas = node('canvas'); canvas.width = 100; canvas.height = 90; drawFurniturePreview(canvas.getContext('2d')!, kind);
+      append(tile, canvas, node('span', '', FURNITURE_LABELS[kind]));
+      tile.onclick = () => this.beginDecoration(kind); catalog.append(tile);
+    }
+    const advanced = node('details'); append(advanced, node('summary', '', 'Más opciones de muebles'), furnitureHeader, this.furnitureList, addRow, this.furnitureDetail);
+    append(this.houseEditBox, enterDecor, catalog, advanced);
+    this.decorationToolbar = node('div', 'sv-decoration-toolbar'); this.decorationToolbar.hidden = true;
+    this.decorationToolbar.setAttribute('role', 'group'); this.decorationToolbar.setAttribute('aria-label', 'Decorar habitación');
+    const catalogButton = button('Catálogo', 'sv-button'); catalogButton.onclick = () => this.openPhone('decorate');
+    const rotate = button('Girar', 'sv-button'); rotate.onclick = () => {
+      const house = this.view?.ownHouse; const item = house?.furniture.find(f => f.id === this.selectedFurnitureId);
+      if (!house || !item) { this.notify('Selecciona un mueble.'); return; }
+      if (item.kind === 'board' || item.kind === 'frame') { this.notify('Las piezas de pared conservan su orientación.'); return; }
+      const next = { ...house, revision: house.revision + 1, furniture: house.furniture.map(f => f.id === item.id ? { ...f, rotation: (((f.rotation || 0) + 90) % 360) as 0 | 90 | 180 | 270 } : f) };
+      this.commitDecoration(next, item.id);
+    };
+    const remove = button('Retirar', 'sv-button'); remove.onclick = () => { const h = this.view?.ownHouse; if (h && this.selectedFurnitureId) this.commitDecoration(deleteFurniture(h, this.selectedFurnitureId, h.ownerId), this.selectedFurnitureId); };
+    const undo = button('Deshacer', 'sv-button'); undo.onclick = () => { const h = this.view?.ownHouse; if (h) { const previous = this.decorationHistory.undo(h); if (previous) this.actions.updateOwnHouse(previous); } };
+    const redo = button('Rehacer', 'sv-button'); redo.onclick = () => { const h = this.view?.ownHouse; if (h) { const next = this.decorationHistory.redo(h); if (next) this.actions.updateOwnHouse(next); } };
+    const grid = button('Cuadrícula: sí', 'sv-button'); grid.onclick = () => { this.decorationGrid = !this.decorationGrid; grid.textContent = `Cuadrícula: ${this.decorationGrid ? 'sí' : 'no'}`; this.lastStageRenderSig = ''; };
+    const done = button('Terminar', 'sv-button sv-button-primary'); done.onclick = () => this.endDecoration();
+    append(this.decorationToolbar, catalogButton, rotate, remove, undo, redo, grid, done); this.shell.append(this.decorationToolbar);
   }
 
   private buildMedia(): void {
-    this.mediaBox = node('section', 'sv-card sv-media-card');
+    this.mediaBox = node('section', 'sv-media-card');
     this.mediaEyebrow = node('div', 'sv-eyebrow', 'EN LA ALDEA');
-    append(this.mediaBox, this.mediaEyebrow, node('h3', '', 'Voz y pantalla HD'));
+    append(this.mediaBox, this.mediaEyebrow);
     this.privateBox = node('div', 'sv-private');
     this.mediaAudience = node('p', 'sv-subtle');
     this.mediaStatus = node('p', 'sv-tiny');
@@ -1308,9 +1409,8 @@ class StudyUI {
     this.stopScreenButton.addEventListener('click', () => this.actions.stopScreen());
     append(controls, this.micButton, this.muteButton, this.deafenButton, this.pttButton, this.screenButton, this.stopScreenButton);
     this.mediaTiles = node('div', 'sv-media-tiles');
-    append(this.mediaBox, this.mediaAudience, this.mediaStatus, this.mediaError, meterWrap, controls, this.privateBox, this.mediaTiles,
-      node('p', 'sv-tiny', 'La pantalla compartida se abre en el escenario superior con calidad de hasta 4K según tu pantalla y conexión con modo destacado o cuadrícula.'),
-      node('p', 'sv-tiny', 'Con pulsar para hablar activo, mantén la barra espaciadora.'));
+    append(this.mediaBox, this.mediaAudience, meterWrap, controls, this.mediaStatus, this.mediaError, this.privateBox, this.mediaTiles,
+      node('p', 'sv-tiny', 'Con «Pulsar para hablar», mantén la barra espaciadora para hablar.'));
   }
 
   private refresh(): void {
@@ -1350,10 +1450,10 @@ class StudyUI {
     this.refreshLists();
     this.refreshHouseEditor();
     this.refreshBoardControls();
-    this.refreshEditor();
     this.refreshContacts();
     this.refreshDiagnostics();
     this.refreshMedia();
+    this.refreshHud();
     this.refreshTouchControls();
   }
 
@@ -1361,25 +1461,29 @@ class StudyUI {
     const view = this.view!;
     const house = this.currentHouse();
     const titles: Record<Pane, [string, string]> = {
-      world: [this.currentArea === 'residential' ? this.villageName : WORLD_AREAS[this.currentArea].displayName, 'Camina hacia las puertas y los carteles. Pulsa E o el botón de acción para entrar e interactuar.'],
+      world: [this.currentArea === 'residential' ? this.villageName : WORLD_AREAS[this.currentArea].displayName, 'WASD para caminar · clic o E para usar'],
       house: [house?.name || 'La casa', house?.ownerId === view.identity.fingerprint
         ? 'Tu espacio sigue disponible incluso sin conexión.' : 'Un rincón compartido para estudiar en compañía.'],
-      board: ['La pizarra', 'Dibuja ideas juntos. Oculta capas solo en tu pantalla.'],
-      editor: ['Editor local', 'Apuntes y código en tu equipo. Ningún archivo se comparte con la aldea.'],
+      board: [this.expansion.boardRegistry.listBoards().find((board) => board.boardId === this.boardId())?.displayName || 'La pizarra', 'Un espacio para tus ideas.'],
       contacts: ['Contactos', 'Tu pequeña agenda de personas de confianza.'],
       diagnostics: ['Diagnóstico', 'Comprueba las capacidades observadas en este equipo.'],
     };
+    this.shell.classList.toggle('is-board-focused', this.pane === 'board');
+    if (this.pane !== 'board' && this.boardAdvancedPanel) {
+      this.boardAdvancedPanel.hidden = true;
+      this.boardAdvancedToggle.setAttribute('aria-expanded', 'false');
+      for (const group of this.boardAdvancedPanel.querySelectorAll('details')) group.open = false;
+    }
     const inRoom = !!this.houseOwnerId;
     const ownRoom = this.houseOwnerId === view.identity.fingerprint;
-    if (this.pane === 'board' && inRoom) setText(this.headingAction, ownRoom ? '← Volver a mi casa' : '← Volver a la casa');
-    else setText(this.headingAction, 'Ir a mi casa →');
-    show(this.headingAction, !(this.pane === 'house' && ownRoom));
+    if (this.pane === 'board') setText(this.headingAction, inRoom ? (ownRoom ? '← Volver a mi casa' : '← Volver a la casa') : '← Volver');
+    else setText(this.headingAction, '← Salir');
+    show(this.headingAction, this.pane === 'board' || this.pane === 'house');
+    this.headingAction.title = this.pane === 'house' ? 'Salir a la aldea (Esc)' : 'Volver (Esc)';
     setText(this.title, titles[this.pane][0]);
     setText(this.subtitle, titles[this.pane][1]);
     show(this.canvasPane, this.pane === 'world' || this.pane === 'house');
     show(this.boardPane, this.pane === 'board');
-    show(this.editorPane, this.pane === 'editor');
-    show(this.contactsPane, this.pane === 'contacts');
     show(this.diagnosticsPane, this.pane === 'diagnostics');
     for (const [pane, item] of this.navButtons) {
       item.classList.toggle('is-active', this.pane === pane);
@@ -1409,7 +1513,7 @@ class StudyUI {
     for (const item of occupied) {
       const row = button('', 'sv-house-row');
       const houseIcon = node('span', 'sv-house-icon');
-      houseIcon.append(icon('house'));
+      houseIcon.append(monoIcon('house'));
       const info = node('span', 'sv-house-row-text');
       append(info, node('strong', '', item.house.name), node('small', '', item.isOwn ? 'Tu casa' : `${item.name} · ${this.accessLabel(item.house.access)}`));
       append(row, houseIcon, info, node('span', '', '→'));
@@ -1480,13 +1584,22 @@ class StudyUI {
       const customColor = getFurnitureCustomColor(selected.kind);
       if (customColor) setInput(this.furnitureColorInput, customColor);
     }
-    this.furnitureList.replaceChildren();
-    for (const item of house.furniture) {
-      const row = button(`${FURNITURE_LABELS[item.kind]}${item.publicAlias ? ` · ${item.publicAlias}` : ''}`, 'sv-furniture-item');
-      row.classList.toggle('is-selected', item.id === this.selectedFurnitureId);
-      row.addEventListener('click', () => { this.selectedFurnitureId = item.id; this.refreshHouseEditor(); });
-      row.addEventListener('dblclick', () => this.interactWithFurniture(item));
-      this.furnitureList.append(row);
+    // Rebuilding on every selection would swap the row under a double-click,
+    // so the list is only rebuilt when the furniture itself changes.
+    const signature = JSON.stringify(house.furniture.map((item) => [item.id, item.kind, item.publicAlias]));
+    if (this.furnitureList.dataset.signature !== signature) {
+      this.furnitureList.dataset.signature = signature;
+      this.furnitureList.replaceChildren();
+      for (const item of house.furniture) {
+        const row = button(`${FURNITURE_LABELS[item.kind]}${item.publicAlias ? ` · ${item.publicAlias}` : ''}`, 'sv-furniture-item');
+        row.dataset.id = item.id;
+        row.addEventListener('click', () => { this.selectedFurnitureId = item.id; this.refreshHouseEditor(); });
+        row.addEventListener('dblclick', () => this.interactWithFurniture(item));
+        this.furnitureList.append(row);
+      }
+    }
+    for (const row of this.furnitureList.children) {
+      if (row instanceof HTMLElement) row.classList.toggle('is-selected', row.dataset.id === this.selectedFurnitureId);
     }
   }
 
@@ -1514,10 +1627,16 @@ class StudyUI {
     const strokes = this.allStrokes(boardId);
     for (const [tool, item] of this.boardToolButtons) {
       item.classList.toggle('is-active', !this.richBoardTool && tool === this.boardTool);
+      item.setAttribute('aria-pressed', String(!this.richBoardTool && tool === this.boardTool));
     }
     for (const [rTool, item] of this.richToolButtons) {
       item.classList.toggle('is-active', this.richBoardTool === rTool);
+      item.setAttribute('aria-pressed', String(this.richBoardTool === rTool));
     }
+    const advancedTool = this.richBoardTool
+      ? this.richToolButtons.get(this.richBoardTool)?.textContent
+      : !MAIN_BOARD_TOOLS.includes(this.boardTool) ? this.boardToolButtons.get(this.boardTool)?.textContent : null;
+    setText(this.boardAdvancedToggle, advancedTool ? `Más · ${advancedTool}` : 'Más');
     const hasOwn = !!newestOwnStroke(strokes, view.identity.fingerprint, boardId)
       || this.expansion.boardRegistry.getRichElements(boardId).some((s) => s.authorId === view.identity.fingerprint);
     this.boardUndoButton.disabled = !hasOwn;
@@ -1531,11 +1650,13 @@ class StudyUI {
     this.boardCanvas.dataset.tool = this.richBoardTool || this.boardTool;
     setText(this.boardZoomLabel, `${Math.round(this.boardCamera().zoom * 100)}%`);
     const canDraw = this.canDrawBoard();
+    show(this.boardReadOnlyStatus, !canDraw || boardAtCapacity(strokes, boardId));
+    setText(this.boardReadOnlyStatus, !canDraw ? 'Esta pizarra es de solo lectura. Puedes consultar los permisos en Más.' : 'La pizarra ha alcanzado su capacidad.');
     setText(this.boardStatus, !canDraw
       ? 'Entra en la casa o solicita permisos de edición para dibujar en esta pizarra.'
       : boardAtCapacity(strokes, boardId)
         ? `Pizarra llena · ${LIMITS.boardOperations}/${LIMITS.boardOperations} operaciones`
-        : `${boardMeta.displayName} (${boardMeta.boardId}) · ${strokes.length}/${LIMITS.boardOperations} operaciones · Guardado persistente`);
+        : `${strokes.filter(stroke => !stroke.deleted).length} trazos en esta pizarra`);
     this.boardCanvas.classList.toggle('is-disabled', !canDraw || boardAtCapacity(strokes, boardId));
     const authors = [...new Set(strokes.map((stroke) => stroke.author))].sort();
     const signature = JSON.stringify([boardId, authors, view.network.members.map((member) => [member.identity.fingerprint, member.identity.displayName])]);
@@ -1557,21 +1678,6 @@ class StudyUI {
       append(label, input, node('span', '', name), node('small', '', 'Solo en mi vista'));
       this.boardLayers.append(label);
     }
-  }
-
-  private refreshEditor(): void {
-    const view = this.view!;
-    if (view.editorText !== this.lastEditorFromView) {
-      this.lastEditorFromView = view.editorText;
-      if (!this.editorDirty) this.editorArea.value = view.editorText;
-    }
-    this.editorOpenButton.disabled = !view.ownHouse.furniture.some((item) => item.kind === 'desk');
-    this.editorOpenButton.title = this.editorOpenButton.disabled ? 'Añade un escritorio en Mi casa para abrir un archivo' : '';
-    this.refreshEditorStatus();
-  }
-
-  private refreshEditorStatus(): void {
-    setText(this.editorStatus, this.editorDirty ? 'Cambios sin guardar' : 'Guardado localmente');
   }
 
   private refreshContacts(): void {
@@ -1764,7 +1870,13 @@ class StudyUI {
 
   private navigate(pane: Pane): void {
     if (!this.view) return;
-    if (pane === 'world') this.leaveCurrentHouse();
+    if (pane === 'contacts') { this.openPhone('contacts'); return; }
+    this.closePhone();
+    if (pane === 'world') {
+      if (this.houseOwnerId || this.waitingHouseId) this.leaveCurrentHouse();
+      else { this.pane = 'world'; this.refresh(); }
+      return;
+    }
     else if (pane === 'house') {
       // Already inside your own house (for example, back from the board):
       // return to it as you left it instead of re-entering at the doormat.
@@ -1784,6 +1896,30 @@ class StudyUI {
 
   private enterOwnHouse(): void { this.openHouse(this.view?.identity.fingerprint || ''); }
 
+  private beginDecoration(kind?: FurnitureKind): void {
+    if (!this.view || this.pane !== 'house' || this.houseOwnerId !== this.view.identity.fingerprint) return;
+    this.decorating = true; this.pendingFurniture = kind ?? null; this.keys.clear(); this.dpadKeys.clear(); this.moveTarget = null; this.movePath = []; this.pendingInteraction = null;
+    this.closePhone(); this.decorationToolbar.hidden = false;
+    if (kind) this.previewNewFurniture(280, 300);
+    this.lastStageRenderSig = '';
+  }
+  private endDecoration(): void { this.decorating = false; this.pendingFurniture = null; this.previewHouse = null; this.drag = null; this.decorationInvalid = null; if (this.decorationToolbar) this.decorationToolbar.hidden = true; this.lastStageRenderSig = ''; }
+  private previewNewFurniture(x: number, y: number): void {
+    const house = this.view?.ownHouse; if (!house || !this.pendingFurniture) return;
+    const snap = (n: number) => this.decorationGrid ? Math.round(n / 8) * 8 : Math.round(n);
+    const item: Furniture = { id: 'placing-preview', kind: this.pendingFurniture, x: snap(x), y: snap(y), publicAlias: '' };
+    this.previewHouse = { ...house, revision: house.revision + 1, furniture: [...house.furniture, item] };
+    this.decorationInvalid = house.furniture.length >= 32 ? 'La casa ya tiene 32 muebles.' : placementError(this.previewHouse, item.id); this.lastStageRenderSig = '';
+  }
+  private commitDecoration(next: PublicHouse, changedId: string): boolean {
+    const house = this.view?.ownHouse; if (!house || next.ownerId !== house.ownerId) return false;
+    const error = placementError(next, changedId); if (error) { this.notify(error); return false; }
+    this.decorationHistory.remember(house);
+    const furniture = next.furniture.map(f => f.id === 'placing-preview' ? { ...f, id: crypto.randomUUID() } : f);
+    this.selectedFurnitureId = furniture.find(f => f.id === changedId)?.id || furniture.at(-1)?.id || null;
+    this.actions.updateOwnHouse({ ...next, furniture, revision: house.revision + 1 }); this.lastStageRenderSig = ''; return true;
+  }
+
   private openHouse(ownerId: string): void {
     const view = this.view;
     if (!view || !ownerId) return;
@@ -1792,10 +1928,12 @@ class StudyUI {
     if (!house) return;
     if (!isOwn && (view.network.phase !== 'JOINED' || house.access === 'locked')) return;
     if (view.network.phase === 'JOINED') this.run(() => this.actions.visitHouse(ownerId));
+    this.expansion.closeModal();
     if (isOwn) {
       this.houseOwnerId = ownerId;
       this.waitingHouseId = null;
       this.pane = 'house';
+      this.currentArea = 'residential';
       this.localPosition = { ...HOUSE_SPAWN };
     } else {
       this.waitingHouseId = ownerId;
@@ -1804,15 +1942,39 @@ class StudyUI {
     this.refresh();
   }
 
+  private changeWorldArea(area: BuiltinAreaId, spawn: Position): void {
+    if (this.pane !== 'world') this.leaveCurrentHouse();
+    this.expansion.closeModal();
+    this.pendingInteraction = null;
+    this.currentArea = area;
+    this.localPosition = { ...spawn, moving: false };
+    this.moveTarget = null;
+    this.lastStageRenderSig = '';
+    this.actions.move({ ...this.localPosition, areaId: area });
+    this.expansion.refreshStageControls();
+    this.refreshPane();
+  }
+
   private leaveCurrentHouse(): void {
+    this.endDecoration();
     const view = this.view;
     if (!view) return;
     if (view.network.phase === 'JOINED' && (this.houseOwnerId || this.waitingHouseId)) this.run(() => this.actions.leaveHouse());
+    const leftHouse = this.houseOwnerId;
     this.houseOwnerId = null;
     this.waitingHouseId = null;
     this.selectedFurnitureId = null;
+    this.expansion.closeModal();
     this.pane = 'world';
-    this.localPosition = { ...WORLD_SPAWN };
+    // Step out onto the street in front of the house you were in.
+    const parcel = leftHouse ? occupiedParcels(view).find((item) => item.ownerId === leftHouse)?.parcel : undefined;
+    if (leftHouse) this.currentArea = 'residential';
+    this.localPosition = parcel
+      ? { x: parcel.doorX, y: parcel.doorY + (parcel.doorY < 200 ? 16 : -16), direction: parcel.doorY < 200 ? 'down' : 'up', moving: false }
+      : { ...WORLD_AREAS[this.currentArea].defaultSpawn };
+    this.stopMoving();
+    this.lastStageRenderSig = '';
+    this.actions.move({ ...this.localPosition, areaId: this.currentArea });
     this.refresh();
   }
 
@@ -2052,22 +2214,6 @@ class StudyUI {
     this.run(async () => this.actions.exportBoard(await renderBoardForExport(strokes)));
   }
 
-  private openEditorFile(): void {
-    const view = this.view;
-    if (!view) return;
-    const selected = view.ownHouse.furniture.find((item) => item.id === this.selectedFurnitureId && item.kind === 'desk');
-    const desk = selected || view.ownHouse.furniture.find((item) => item.kind === 'desk');
-    if (!desk) { this.notify('Añade un escritorio en Mi casa para abrir un archivo.'); return; }
-    if (this.editorDirty && !window.confirm('¿Abrir otro archivo? Si eliges un texto, reemplazará los cambios sin guardar del editor.')) return;
-    const before = view.editorText;
-    this.run(async () => {
-      await this.actions.openLocalFile(desk.id);
-      if (this.view && this.view.editorText !== before) {
-        this.editorDirty = false; this.editorArea.value = this.view.editorText; this.refreshEditorStatus();
-      }
-    });
-  }
-
   private refreshBoardSwatches(): void {
     const active = this.boardColor.value.toLowerCase();
     for (const [hex, btn] of this.boardSwatchButtons) {
@@ -2127,29 +2273,6 @@ class StudyUI {
     });
   }
 
-  private runEditorCode(): void {
-    const source = this.editorArea.value;
-    const selectedLang = this.editorLangSelect.value;
-    const language: CodeLanguage = selectedLang === 'auto' ? detectLanguage(source) : (selectedLang as CodeLanguage);
-    const langNames: Record<CodeLanguage, string> = {
-      typescript: 'TypeScript / JS',
-      python: 'Python 3',
-      cpp: 'C++',
-    };
-    setText(this.editorConsoleMeta, `EJECUTANDO ${langNames[language].toUpperCase()}…`);
-    void executeLocalCode(source, language).then((result) => {
-      const textOut = result.output.join('\n');
-      setText(this.editorConsoleMeta, `SALIDA · ${langNames[result.language].toUpperCase()} · ${result.durationMs} ms`);
-      if (!result.ok || result.error) {
-        this.editorConsolePre.classList.add('is-error');
-        setText(this.editorConsolePre, textOut ? `${textOut}\n\n✖ Error: ${result.error}` : `✖ Error: ${result.error}`);
-      } else {
-        this.editorConsolePre.classList.remove('is-error');
-        setText(this.editorConsolePre, textOut || '(Ejecución completada sin salida en consola)');
-      }
-    });
-  }
-
   private interactWithFurniture(item: Furniture): void {
     const view = this.view;
     if (!view) return;
@@ -2174,40 +2297,26 @@ class StudyUI {
         break;
       }
       case 'desk':
-        this.navigate('editor');
-        this.notify(`Escritorio abierto${item.publicAlias ? ` (${item.publicAlias})` : ''}: puedes escribir y ejecutar código en TS, Python o C++.`);
+        this.expansion.openActivity('projects');
         break;
       case 'bookshelf':
         this.openStudyAiModal();
-        this.notify(`Librería de estudio${item.publicAlias ? ` (${item.publicAlias})` : ''}: crea tarjetas de memoria manuales o usa Ollama si está activo.`);
+        break;
+      case 'cabinet':
+        this.expansion.openActivity('notes');
         break;
       case 'frame':
-      case 'cabinet':
-        if (item.kind === 'frame' && isOwn) {
+        if (isOwn) {
           if (!this.aiSpritePromptInput.value.trim()) {
             this.aiSpritePromptInput.value = item.publicAlias || 'Montaña estrellada';
           }
           this.runFurnitureSpriteGenerator(item);
-          break;
-        }
-        if (isOwn) {
-          const before = view.editorText;
-          this.run(async () => {
-            await this.actions.openLocalFile(item.id);
-            if (this.view && this.view.editorText !== before) {
-              this.editorDirty = false;
-              this.editorArea.value = this.view.editorText;
-              this.refreshEditorStatus();
-              this.navigate('editor');
-            }
-          });
         } else {
-          this.notify(`${FURNITURE_LABELS[item.kind]}${item.publicAlias ? `: «${item.publicAlias}»` : ''} · Los archivos vinculados son privados de quien habita la casa.`);
+          this.notify(`Cuadro${item.publicAlias ? ` «${item.publicAlias}»` : ''}: un recuerdo de quien vive aquí.`);
         }
         break;
       case 'table':
-        this.micButton.focus();
-        this.notify(`Mesa de estudio${item.publicAlias ? ` (${item.publicAlias})` : ''}: usa «Voz y pantalla HD» para hablar o compartir tu ventana.`);
+        this.openPhone('voice');
         break;
       case 'plant':
         if (isOwn) {
@@ -2254,12 +2363,7 @@ class StudyUI {
     const genBtn = button('✨ Generar Tarjetas y Quiz', 'sv-button sv-button-small sv-button-primary');
     genBtn.dataset.testid = 'ai-study-generate-btn';
     genBtn.addEventListener('click', () => this.refreshStudyAiPack());
-    const openFileBtn = button('📂 Vincular archivo local', 'sv-button sv-button-small');
-    openFileBtn.addEventListener('click', () => {
-      this.studyModalOverlay.hidden = true;
-      this.openEditorFile();
-    });
-    append(controls, this.studyModalTopicInput, genBtn, openFileBtn);
+    append(controls, this.studyModalTopicInput, genBtn);
 
     this.studyModalStatus = node('p', 'sv-subtle', 'Generando material activo a partir de tu cuaderno local…');
     this.studyFlashcardsWrap = node('div', 'sv-flashcard-grid');
@@ -2280,7 +2384,7 @@ class StudyUI {
       this.saveStroke({ points: [pt], tool: 'text', color: this.boardColor.value, width: 8 }, this.currentStudyPack.boardSummary);
       this.notify('Resumen de estudio publicado como nota adhesiva en la pizarra.');
     });
-    const toEditorBtn = button('📝 Añadir al cuaderno local', 'sv-button sv-button-small');
+    const toEditorBtn = button('📝 Guardar en mis apuntes', 'sv-button sv-button-small');
     toEditorBtn.dataset.testid = 'ai-study-to-editor-btn';
     toEditorBtn.addEventListener('click', () => {
       if (!this.currentStudyPack) return;
@@ -2291,13 +2395,10 @@ class StudyUI {
         ...pack.flashcards.map((c, idx) => `- **P${idx + 1}: ${c.front}**\n  R: ${c.back}`),
         '',
       ].join('\n');
-      this.editorArea.value = `${this.editorArea.value.trimEnd()}\n${md}`;
-      this.editorDirty = true;
-      this.refreshEditorStatus();
-      void this.actions.saveEditor(this.editorArea.value);
+      this.expansion.notesStore.createNote({ title: `Tarjetas: ${pack.topic}`, content: md.trim(), ownerId: 'local-owner' });
       this.studyModalOverlay.hidden = true;
-      this.navigate('editor');
-      this.notify('Tarjetas añadidas y guardadas en tu cuaderno local.');
+      this.expansion.openActivity('notes');
+      this.notify('Tarjetas guardadas como una página nueva en tus apuntes.');
     });
     append(footerActions, toBoardBtn, toEditorBtn);
 
@@ -2321,7 +2422,7 @@ class StudyUI {
   }
 
   private refreshStudyAiPack(): void {
-    const content = this.editorArea?.value || this.view?.editorText || '';
+    const content = this.expansion.notesStore.listNotes('local-owner')[0]?.content || this.view?.editorText || '';
     const topic = this.studyModalTopicInput.value.trim();
     setText(this.studyModalStatus, 'Analizando apuntes y generando tarjetas…');
     void generateBookshelfStudyPack({ content, topic }).then((pack) => {
@@ -2467,24 +2568,6 @@ class StudyUI {
     })();
   }
 
-  private runDeskStudyPlanner(): void {
-    const currentNotes = this.editorArea?.value || this.view?.editorText || '';
-    const firstLine = currentNotes
-      .split('\n')
-      .map((l) => l.replace(/^#+\s*/, '').trim())
-      .find((l) => l.length > 0 && !l.startsWith('//') && !l.startsWith('/*')) || 'Algoritmos y resolución de problemas';
-    this.notify('⏱️ Generando plan Pomodoro de 25 minutos…');
-    void generateDeskPomodoroPlan({ goal: firstLine, currentNotes }).then(async (plan) => {
-      const updated = `${plan.markdown}\n${currentNotes}`;
-      this.editorArea.value = updated.slice(0, 100_000);
-      this.editorDirty = false;
-      await this.actions.saveEditor(this.editorArea.value);
-      this.refreshEditorStatus();
-      this.navigate('editor');
-      this.notify(`✨ «${plan.title}» insertado y guardado en tu cuaderno local.`);
-    });
-  }
-
   private runFurnitureSpriteGenerator(targetItem?: Furniture): void {
     const view = this.view;
     if (!view) return;
@@ -2512,26 +2595,6 @@ class StudyUI {
     });
   }
 
-  private insertSnippet(): void {
-    const snippet = SNIPPETS.find((item) => item.id === this.snippetSelect.value);
-    if (!snippet) return;
-    if (snippet.id === 'python' || snippet.id === 'cpp' || snippet.id === 'code') {
-      const targetLang: CodeLanguage = snippet.id === 'python' ? 'python' : snippet.id === 'cpp' ? 'cpp' : 'typescript';
-      this.editorLangSelect.value = targetLang;
-      this.editorArea.value = snippet.text;
-      this.editorArea.focus();
-      this.editorArea.setSelectionRange(snippet.text.length, snippet.text.length);
-    } else {
-      const { text, caret } = insertAtSelection(this.editorArea.value, snippet.text,
-        this.editorArea.selectionStart, this.editorArea.selectionEnd);
-      this.editorArea.value = text;
-      this.editorArea.focus();
-      this.editorArea.setSelectionRange(caret, caret);
-    }
-    this.editorDirty = true;
-    this.refreshEditorStatus();
-  }
-
   private run(action: () => void | Promise<void>): void {
     try { void Promise.resolve(action()).catch((error: unknown) => this.notify(this.errorMessage(error))); }
     catch (error) { this.notify(this.errorMessage(error)); }
@@ -2541,7 +2604,12 @@ class StudyUI {
     return error instanceof Error && error.message ? error.message : 'No se pudo completar la acción.';
   }
 
-  private notify(message: string): void { this.localNotice = message; this.refresh(); }
+  private notify(message: string): void {
+    this.localNotice = message;
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => { this.noticeTimer = null; if (this.localNotice === message) { this.localNotice = null; this.refresh(); } }, 6_000);
+    this.refresh();
+  }
 
   private canvasPoint(event: MouseEvent, canvas: HTMLCanvasElement): BoardPoint {
     const rect = canvas.getBoundingClientRect();
@@ -2571,16 +2639,12 @@ class StudyUI {
 
   private triggerInteraction(): void {
     if (!this.view) return;
+    if (this.decorating) return;
     try { navigator.vibrate?.(15); } catch {}
     if (this.pane === 'world') {
       const portal = closestPortal(this.currentArea, this.localPosition);
       if (portal && closestPortal(this.currentArea, this.localPosition)?.id === portal.id) {
-        this.currentArea = portal.toArea;
-        this.localPosition = { ...portal.spawnAtTarget };
-        this.moveTarget = null;
-        this.lastStageRenderSig = '';
-        this.expansion.refreshStageControls();
-        this.refreshPane();
+        this.changeWorldArea(portal.toArea, portal.spawnAtTarget);
         this.notify(`Entrando en ${WORLD_AREAS[portal.toArea].displayName}…`);
         return;
       }
@@ -2772,11 +2836,17 @@ class StudyUI {
     this.touchPttBtn.addEventListener('pointerup', releasePtt);
     this.touchPttBtn.addEventListener('pointercancel', releasePtt);
 
-    append(actions, this.touchPttBtn, this.touchActionBtn);
+    const sprint = button('Correr', 'sv-touch-action-btn');
+    sprint.setAttribute('aria-label', 'Mantener para correr');
+    sprint.addEventListener('pointerdown', event => { this.touchSprint = true; sprint.setPointerCapture(event.pointerId); event.preventDefault(); });
+    sprint.addEventListener('pointerup', () => { this.touchSprint = false; });
+    sprint.addEventListener('pointercancel', () => { this.touchSprint = false; });
+    sprint.addEventListener('lostpointercapture', () => { this.touchSprint = false; });
+    append(actions, sprint, this.touchPttBtn, this.touchActionBtn);
     append(this.touchControlsRoot, dpad, actions);
 
     // Floating toggle button on stage
-    this.touchToggleBtn = button('🎮 Controles', 'sv-touch-toggle-pill');
+    this.touchToggleBtn = button('Mostrar u ocultar controles táctiles', 'sv-button');
     this.touchToggleBtn.setAttribute('aria-label', 'Alternar controles táctiles en pantalla');
     this.touchToggleBtn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -2786,89 +2856,138 @@ class StudyUI {
       this.notify(this.touchControlsForced ? 'Controles táctiles activados' : 'Controles táctiles ocultados');
     });
 
-    append(stageWrap, this.touchControlsRoot, this.touchToggleBtn);
+    append(stageWrap, this.touchControlsRoot);
+    append(this.settingsContent, node('h3', '', 'Controles'), this.touchToggleBtn);
     this.refreshTouchControls();
   }
 
-  private onStageDoubleClick = (event: MouseEvent): void => {
-    if (this.pane !== 'house' || !this.view) return;
-    const point = this.canvasPoint(event, this.stageCanvas);
-    const house = this.currentHouse();
-    if (!house) return;
-    const item = hitFurniture(house, point.x, point.y);
-    if (item) this.interactWithFurniture(item);
-  };
-
-  private onStagePointerDown = (event: PointerEvent): void => {
-    const view = this.view;
-    if (!view || this.settingsDialog.open) return;
-    const point = this.canvasPoint(event, this.stageCanvas);
-    const allowTapMove = event.pointerType === 'touch' || this.touchControlsForced === true;
+  /** What a click on the stage would use, and where to stand to use it. */
+  private interactionAt(point: BoardPoint): Interaction | null {
+    const view = this.view!;
     if (this.pane === 'world') {
       const portal = WORLD_AREAS[this.currentArea].portals.find((p) => pointInRect(point.x, point.y, p.rect));
-      if (portal && closestPortal(this.currentArea, this.localPosition)?.id === portal.id) {
-        this.currentArea = portal.toArea;
-        this.localPosition = { ...portal.spawnAtTarget };
-        this.moveTarget = null;
-        this.lastStageRenderSig = '';
-        this.expansion.refreshStageControls();
-        this.refreshPane();
-        this.notify(`Entrando en ${WORLD_AREAS[portal.toArea].displayName}…`);
-        return;
+      if (portal) {
+        return {
+          x: portal.rect.x + portal.rect.w / 2, y: portal.rect.y + portal.rect.h / 2,
+          near: () => closestPortal(this.currentArea, this.localPosition)?.id === portal.id,
+          run: () => { this.changeWorldArea(portal.toArea, portal.spawnAtTarget); this.notify(`Entrando en ${WORLD_AREAS[portal.toArea].displayName}…`); },
+        };
       }
       if (this.currentArea === 'residential') {
         const item = occupiedParcels(view).find((candidate) => pointInRect(point.x, point.y, candidate.parcel));
-        if (item && closestDoor(this.localPosition, occupiedParcels(view))?.ownerId === item.ownerId) {
-          this.openHouse(item.ownerId);
-          return;
-        }
-      } else {
-        const hitObj = this.expansion.objectRegistry.hitTest(
-          this.currentArea,
-          point.x,
-          point.y,
-          view.identity.fingerprint,
-        );
-        if (hitObj && this.expansion.objectRegistry.closestInteractable(this.currentArea, this.localPosition.x, this.localPosition.y, view.identity.fingerprint)?.id === hitObj.id) {
-          this.expansion.interactWithWorldObject(hitObj);
-          return;
-        }
+        if (!item) return null;
+        const top = item.parcel.doorY < 200;
+        return {
+          x: item.parcel.doorX, y: item.parcel.doorY + (top ? 14 : -14),
+          near: () => closestDoor(this.localPosition, occupiedParcels(this.view!))?.ownerId === item.ownerId,
+          run: () => this.openHouse(item.ownerId),
+        };
       }
-      if (allowTapMove) {
-        this.moveTarget = { x: point.x, y: point.y };
-      }
+      const obj = this.expansion.objectRegistry.hitTest(this.currentArea, point.x, point.y, view.identity.fingerprint);
+      if (!obj) return null;
+      const bounds = WORLD_AREAS[this.currentArea].bounds;
+      const below = obj.y + obj.h + 14;
+      return {
+        x: obj.x + obj.w / 2,
+        y: below <= bounds.y + bounds.h - 12 ? below : obj.y - 14,
+        near: () => this.expansion.objectRegistry.closestInteractable(this.currentArea, this.localPosition.x, this.localPosition.y, this.view!.identity.fingerprint)?.id === obj.id,
+        run: () => this.expansion.interactWithWorldObject(obj),
+      };
+    }
+    if (this.pane !== 'house') return null;
+    const house = this.currentHouse();
+    if (!house) return null;
+    if (point.y >= 384 && point.x >= 340 && point.x <= 428) {
+      return { x: HOUSE_DOOR.x, y: HOUSE_DOOR.y - 14, near: () => atHouseDoor(this.localPosition), run: () => this.leaveCurrentHouse() };
+    }
+    const item = hitFurniture(house, point.x, point.y);
+    if (!item) return null;
+    const rect = furnitureRect(item);
+    const below = rect.y + rect.h + 12;
+    return {
+      x: rect.x + rect.w / 2, y: below < 396 ? below : rect.y - 12,
+      near: () => closestFurniture(this.localPosition, this.currentHouse() || house)?.id === item.id,
+      run: () => this.interactWithFurniture(item),
+    };
+  }
+
+  /** Use it now if close enough, otherwise walk there first. */
+  private interactOrWalk(target: Interaction): void {
+    if (target.near()) { this.pendingInteraction = null; this.moveTarget = null; target.run(); return; }
+    if (this.walkTo(target.x, target.y)) this.pendingInteraction = target;
+  }
+
+  /** Walks around trees, fences and furniture to a point; false when there is no way there. */
+  private walkTo(x: number, y: number): boolean {
+    const view = this.view;
+    if (!view) return false;
+    const house = this.pane === 'house' ? this.currentHouse() || view.ownHouse : null;
+    const obstacles = house ? houseObstacles(house)
+      : this.currentArea === 'residential' ? worldObstacles(occupiedParcels(view)) : this.expansion.objectRegistry.obstaclesForArea(this.currentArea);
+    const path = findPath(this.localPosition, { x, y }, obstacles, house ? HOUSE_BOUNDS : WORLD_AREAS[this.currentArea].bounds);
+    if (!path) { this.notify('No hay camino hasta ahí.'); return false; }
+    this.moveTarget = path.shift() ?? { x, y };
+    this.movePath = path;
+    return true;
+  }
+
+  private onStagePointerDown = (event: PointerEvent): void => {
+    const view = this.view;
+    if (!view || this.settingsDialog.open || this.activityOpen) return;
+    if (!this.phone.hidden) { this.closePhone(); return; }
+    const point = this.canvasPoint(event, this.stageCanvas);
+    if (this.decorating && this.pendingFurniture && this.pane === 'house') {
+      this.previewNewFurniture(point.x, point.y);
+      if (this.previewHouse && !this.decorationInvalid) { const item = this.previewHouse.furniture.at(-1)!; if (this.commitDecoration(this.previewHouse, item.id)) { this.pendingFurniture = null; this.previewHouse = null; } }
+      else this.notify(this.decorationInvalid || 'Elige una posición libre.');
       return;
     }
-    if (this.pane !== 'house') return;
-    if (point.y >= 384 && point.x >= 340 && point.x <= 428) { this.leaveCurrentHouse(); return; }
-    const house = this.currentHouse();
-    if (!house) return;
-    const item = hitFurniture(house, point.x, point.y);
-    this.selectedFurnitureId = item?.id || null;
-    this.refreshHouseEditor();
-    if (item && house.ownerId === view.identity.fingerprint) {
-      this.drag = { id: item.id, offsetX: point.x - item.x, offsetY: point.y - item.y, baseHouse: house };
-      this.stageCanvas.setPointerCapture(event.pointerId);
-      event.preventDefault();
-      this.moveTarget = null;
-    } else if (!item && allowTapMove) {
-      this.moveTarget = { x: point.x, y: point.y };
+    const allowTapMove = event.pointerType === 'touch' || this.touchControlsForced === true;
+    const target = this.interactionAt(point);
+    if (this.pane === 'house') {
+      const house = this.currentHouse();
+      const item = house ? hitFurniture(house, point.x, point.y) : null;
+      this.selectedFurnitureId = item?.id || null;
+      this.refreshHouseEditor();
+      // Furniture moves only while explicitly decorating.
+      if (this.decorating && item && house && house.ownerId === view.identity.fingerprint) {
+        this.drag = { id: item.id, offsetX: point.x - item.x, offsetY: point.y - item.y, baseHouse: house };
+        this.dragMoved = false;
+        this.stageCanvas.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
     }
+    if (this.decorating) return;
+    if (target) { this.interactOrWalk(target); return; }
+    if (allowTapMove) { this.pendingInteraction = null; this.walkTo(point.x, point.y); }
   };
 
   private onStagePointerMove = (event: PointerEvent): void => {
+    if (this.decorating && this.pendingFurniture) { const p = this.canvasPoint(event, this.stageCanvas); this.previewNewFurniture(p.x, p.y); return; }
     if (!this.drag || !this.view) return;
     const point = this.canvasPoint(event, this.stageCanvas);
-    this.previewHouse = moveFurniture(this.drag.baseHouse, this.drag.id,
-      point.x - this.drag.offsetX, point.y - this.drag.offsetY, this.view.identity.fingerprint);
+    const snap = (n: number) => this.decorationGrid ? Math.round(n / 8) * 8 : n;
+    const x = snap(point.x - this.drag.offsetX);
+    const y = snap(point.y - this.drag.offsetY);
+    const item = this.drag.baseHouse.furniture.find((f) => f.id === this.drag!.id);
+    if (!this.dragMoved && item && Math.hypot(item.x - x, item.y - y) < 4) return;
+    this.dragMoved = true;
+    this.previewHouse = moveFurniture(this.drag.baseHouse, this.drag.id, x, y, this.view.identity.fingerprint);
+    this.decorationInvalid = placementError(this.previewHouse, this.drag.id);
   };
 
   private onStagePointerUp = (event: PointerEvent): void => {
     if (!this.drag) return;
     if (this.stageCanvas.hasPointerCapture(event.pointerId)) this.stageCanvas.releasePointerCapture(event.pointerId);
-    if (this.previewHouse && this.previewHouse !== this.drag.baseHouse) this.actions.updateOwnHouse(this.previewHouse);
+    const clicked = !this.dragMoved && event.type === 'pointerup';
+    if (event.type === 'pointerup' && this.previewHouse && this.previewHouse !== this.drag.baseHouse) this.commitDecoration(this.previewHouse, this.drag.id);
     this.previewHouse = null;
     this.drag = null;
+    if (clicked && !this.decorating) {
+      const target = this.interactionAt(this.canvasPoint(event, this.stageCanvas));
+      if (target) this.interactOrWalk(target);
+    }
   };
 
   private onBoardPointerDown = (event: PointerEvent): void => {
@@ -3040,9 +3159,20 @@ class StudyUI {
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.view || this.settingsDialog.open || this.view.lockedIdentity || this.isTypingTarget(event.target)) return;
+    if (!this.view || this.settingsDialog.open || this.view.lockedIdentity) return;
     const key = event.key.toLowerCase();
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright'].includes(key)) {
+    if (this.decorating && key === 'escape') { if (this.pendingFurniture || this.drag || this.previewHouse) { this.pendingFurniture = null; this.drag = null; this.previewHouse = null; this.decorationInvalid = null; } else this.endDecoration(); event.preventDefault(); return; }
+    if (this.decorating) return;
+    if (key === 'escape' && this.activityOpen && !this.isTypingTarget(event.target)) { this.expansion.closeModal(); event.preventDefault(); return; }
+    if (key === 'escape' && !this.phone.hidden) { this.closePhone(); event.preventDefault(); return; }
+    if (this.isTypingTarget(event.target) || this.activityOpen) return;
+    if (key === 'm' && !event.repeat && !event.ctrlKey && !event.metaKey) {
+      if (this.phone.hidden) this.openPhone('home'); else this.closePhone();
+      event.preventDefault();
+      return;
+    }
+    if (!this.phone.hidden) return;
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', 'shift'].includes(key)) {
       this.keys.add(key);
       if (this.pane === 'world' || this.pane === 'house') event.preventDefault();
     }
@@ -3052,6 +3182,13 @@ class StudyUI {
     if (event.code === 'Space' && this.view.network.media.pushToTalk && this.view.network.media.micEnabled && !event.repeat) {
       this.actions.setTalking(true);
       event.preventDefault();
+    }
+    if (key === 'escape' && this.pane === 'board' && !this.boardAdvancedPanel.hidden) {
+      this.boardAdvancedPanel.hidden = true;
+      this.boardAdvancedToggle.setAttribute('aria-expanded', 'false');
+      this.boardAdvancedToggle.focus();
+      event.preventDefault();
+      return;
     }
     // Escape steps back one level: board -> room, room -> village.
     if (key === 'escape' && this.pane === 'board' && this.houseOwnerId) this.returnToRoom();
@@ -3065,6 +3202,7 @@ class StudyUI {
 
   private onBlur = (): void => {
     this.keys.clear();
+    this.touchSprint = false;
     this.dpadKeys.clear();
     this.moveTarget = null;
     if (this.view?.network.media.pushToTalk) this.actions.setTalking(false);
@@ -3094,13 +3232,25 @@ class StudyUI {
       let vy = Number(this.keys.has('s') || this.keys.has('arrowdown') || this.dpadKeys.has('arrowdown'))
         - Number(this.keys.has('w') || this.keys.has('arrowup') || this.dpadKeys.has('arrowup'));
 
+      if (this.phone.hidden === false || this.activityOpen || this.decorating) {
+        vx = 0; vy = 0;
+      }
+      if (!this.moveTarget) this.movePath = [];
       if (vx !== 0 || vy !== 0) {
         this.moveTarget = null;
+        this.movePath = [];
+        this.pendingInteraction = null;
       } else if (this.moveTarget) {
-        const dx = this.moveTarget.x - this.localPosition.x;
-        const dy = this.moveTarget.y - this.localPosition.y;
+        let dx = this.moveTarget.x - this.localPosition.x;
+        let dy = this.moveTarget.y - this.localPosition.y;
+        // Reaching a corner turns straight to the next one.
+        if (Math.hypot(dx, dy) < 6 && this.movePath.length) {
+          this.moveTarget = this.movePath.shift()!;
+          dx = this.moveTarget.x - this.localPosition.x;
+          dy = this.moveTarget.y - this.localPosition.y;
+        }
         const dist = Math.hypot(dx, dy);
-        if (dist < 8) {
+        if (dist < 6) {
           this.moveTarget = null;
         } else {
           vx = dx / dist;
@@ -3108,6 +3258,7 @@ class StudyUI {
         }
       }
 
+      const running = (this.keys.has('shift') || this.touchSprint) && this.phone.hidden && !this.activityOpen;
       const vector = { x: vx, y: vy };
       const previous = this.localPosition;
       const areaMeta = WORLD_AREAS[this.currentArea];
@@ -3115,20 +3266,28 @@ class StudyUI {
         ? worldObstacles(occupiedParcels(view))
         : this.expansion.objectRegistry.obstaclesForArea(this.currentArea);
       const next = this.pane === 'world'
-        ? stepPosition(previous, vector, dt, worldObs, areaMeta.bounds)
-        : stepHousePosition(previous, vector, dt, this.currentHouse() || view.ownHouse);
+        ? stepPosition(previous, vector, dt, worldObs, areaMeta.bounds, running ? 275 : 110)
+        : stepHousePosition(previous, vector, dt, this.currentHouse() || view.ownHouse, running ? 2.5 : 1);
 
       if (this.moveTarget && Math.hypot(next.x - previous.x, next.y - previous.y) < 0.01 && dt > 0) {
         this.moveTarget = null;
       }
 
       this.localPosition = next;
+      if (!this.moveTarget && this.pendingInteraction) {
+        const arrived = this.pendingInteraction;
+        this.pendingInteraction = null;
+        if (arrived.near()) arrived.run();
+        else this.notify('No llego hasta ahí. Acércate caminando y vuelve a intentarlo.');
+      }
       if (view.network.phase === 'JOINED' && (next.x !== previous.x || next.y !== previous.y || next.moving !== previous.moving)
         && (now - this.lastMoveSent > 80 || !next.moving)) {
         this.lastMoveSent = now;
-        this.actions.move(next);
+        this.actions.move({ ...next, areaId: this.currentArea });
       }
       const people = this.visiblePeople(view);
+      const sceneLabel = this.pane === 'house' ? 'Interior de la casa' : WORLD_AREAS[this.currentArea].displayName;
+      this.stageCanvas.setAttribute('aria-label', `${sceneLabel} · Personas aquí: ${people.map(person => person.identity.displayName).join(', ')}`);
       const activeHouse = this.previewHouse || this.currentHouse() || view.ownHouse;
       const occupied = occupiedParcels(view);
       const calm = reducedMotion();
@@ -3197,7 +3356,12 @@ class StudyUI {
                 if (bSprite) perItemSprites.set(f.id, bSprite);
               }
             }
-            drawHouseInterior(ctx, activeHouse, people, this.selectedFurnitureId, dt, nearFurniture?.id || null, perItemSprites);
+            drawHouseInterior(ctx, activeHouse, people, this.selectedFurnitureId, dt, this.decorating ? null : nearFurniture?.id || null, perItemSprites);
+            if (this.decorating) {
+              if (this.decorationGrid) { ctx.save(); ctx.fillStyle = '#ffffff55'; for (let x = HOUSE_BOUNDS.x; x < 740; x += 8) for (let y = HOUSE_BOUNDS.y; y < 406; y += 8) ctx.fillRect(x, y, 1, 1); ctx.restore(); }
+              const candidate = this.previewHouse?.furniture.find(f => f.id === (this.drag?.id || this.previewHouse?.furniture.at(-1)?.id));
+              if (candidate) { const r = furnitureRect(candidate); ctx.save(); ctx.fillStyle = this.decorationInvalid ? '#d8444450' : '#59b87140'; ctx.fillRect(r.x, r.y, r.w, r.h); ctx.strokeStyle = this.decorationInvalid ? '#b52828' : '#387e45'; ctx.strokeRect(r.x, r.y, r.w, r.h); ctx.restore(); }
+            }
           }
           if (this.moveTarget) {
             ctx.save();
@@ -3247,7 +3411,7 @@ class StudyUI {
           const scale = this.boardCanvas.width / 768;
           ctx.save();
           ctx.setTransform(scale, 0, 0, scale, 0, 0);
-          drawBoard(ctx, visible, this.boardDraft, cam, 768, 432, true, scale);
+          drawBoard(ctx, visible, this.boardDraft, cam, 768, 432, false, scale);
           ctx.save();
           ctx.scale(cam.zoom, cam.zoom);
           ctx.translate(-cam.x, -cam.y);
@@ -3291,7 +3455,7 @@ class StudyUI {
     const sceneHouse = this.pane === 'house' ? this.houseOwnerId : null;
     const people: DrawPerson[] = [{ identity: view.identity, position: this.localPosition, isOwn: true }];
     for (const member of view.network.members) {
-      if (!member.connected || member.identity.fingerprint === view.identity.fingerprint || member.houseId !== sceneHouse) continue;
+      if (!member.connected || member.identity.fingerprint === view.identity.fingerprint || !isInScene(member, this.currentArea, sceneHouse)) continue;
       people.push({ identity: member.identity, position: member.position, isOwn: false });
     }
     return people;

@@ -7,8 +7,8 @@ export interface BoardDraft { points: readonly BoardPoint[]; tool: BoardStroke['
 /** Anything drawable: a stored stroke or an in-progress draft. */
 type Drawable = Pick<BoardDraft, 'points' | 'tool' | 'color' | 'width' | 'text'>;
 
-const PAPER = '#fffdf5';
-const GRID = '#e3e6d4';
+const PAPER = '#ffffff';
+const GRID = '#eceef1';
 const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 /** Width doubles as the text size for notes: Fino 16px, Medio 22px, Grueso 34px. */

@@ -50,6 +50,28 @@ async fn choose_local_file() -> Result<Option<ChosenFile>, String> {
     Ok(Some(ChosenFile { name: file.file_name(), kind: kind.into(), content, private_path: path.to_string_lossy().into_owned() }))
 }
 
+/// Hands a link to the system's default handler. Only https pages and the
+/// VS Code clone URL are accepted, and the URL is passed as one argument, never
+/// through a shell, so it cannot become a command.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let allowed = url.starts_with("https://") || url.starts_with("vscode://vscode.git/clone?url=");
+    if !allowed || url.len() > 2048 || url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
+        return Err("Enlace no permitido.".into());
+    }
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command.arg(&url).spawn().map(|_| ()).map_err(|_| "No se pudo abrir el enlace en este equipo.".into())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -60,7 +82,7 @@ pub fn run() {
             app.manage(DatabaseState(Mutex::new(database)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_local, save_local, choose_local_file])
+        .invoke_handler(tauri::generate_handler![load_local, save_local, choose_local_file, open_external])
         .run(tauri::generate_context!())
         .expect("No se pudo iniciar StudyVillage");
 }

@@ -7,7 +7,13 @@ export const LIMITS = {
   // Whiteboard: the board is unbounded in practice; coordinates are world
   // units within ±boardExtent, and a text note is at most boardText chars.
   boardExtent: 20_000, boardText: 280,
+  // One shared-activity message (a game view, a drawing, the project list),
+  // kept well under messageBytes once wrapped in its envelope.
+  appData: 56_000,
 } as const;
+
+export type AppChannel = 'werewolves' | 'gartic' | 'projects' | 'study';
+export interface AppMessage { channel: AppChannel; from: IdentityId; data: string }
 
 export type IdentityId = string;
 export interface PublicIdentity { fingerprint: IdentityId; publicKey: string; displayName: string; color: string }
@@ -19,9 +25,9 @@ export interface EncryptedIdentity {
 export interface Contact { schemaVersion: 1; identity: PublicIdentity; friendCode: string }
 export type HouseAccess = 'open' | 'ask' | 'locked';
 export type FurnitureKind = 'desk' | 'bookshelf' | 'board' | 'plant' | 'table' | 'frame' | 'cabinet';
-export interface Furniture { id: string; kind: FurnitureKind; x: number; y: number; publicAlias: string }
+export interface Furniture { rotation?: 0 | 90 | 180 | 270; id: string; kind: FurnitureKind; x: number; y: number; publicAlias: string }
 export interface PublicHouse { ownerId: IdentityId; revision: number; name: string; access: HouseAccess; theme: 'mint' | 'peach'; furniture: Furniture[] }
-export interface Position { x: number; y: number; direction: 'up' | 'down' | 'left' | 'right'; moving: boolean }
+export interface Position { areaId?: 'residential' | 'community' | 'study'; x: number; y: number; direction: 'up' | 'down' | 'left' | 'right'; moving: boolean }
 export interface Member { identity: PublicIdentity; endpoint: string; slot: number; connected: boolean; houseId: IdentityId | null; position: Position }
 export interface JoinRequest { requestId: string; identity: PublicIdentity }
 export interface VisitRequest { requestId: string; identity: PublicIdentity; houseId: IdentityId }
@@ -32,7 +38,7 @@ export type ScreenPhase = 'OFF' | 'REQUESTING_OS_PERMISSION' | 'CAPTURING_LOCAL'
 export interface RemoteMedia { identityId: IdentityId; kind: 'audio' | 'screen'; stream: MediaStream }
 export interface MediaView { micEnabled: boolean; muted: boolean; deafened: boolean; pushToTalk: boolean; talking: boolean; screenPhase: ScreenPhase; localScreen: MediaStream | null; remote: RemoteMedia[]; audience: string; error: string | null }
 export interface NetworkView {
-  phase: SessionPhase; isHost: boolean; sessionId: string | null; invite: string | null;
+  phase: SessionPhase; isHost: boolean; hostId: IdentityId | null; sessionId: string | null; invite: string | null;
   members: Member[]; houses: PublicHouse[]; pendingJoins: JoinRequest[]; pendingVisits: VisitRequest[];
   strokes: BoardStroke[]; hostGraceRemainingMs: number | null; error: string | null; media: MediaView;
   /** Private voice: who you asked, whether they asked you back, and who is asking you. */
@@ -51,6 +57,10 @@ export interface VillageActions {
   startScreen(): Promise<void>; stopScreen(): void;
   /** Ask for (or accept) a private call with one person; null returns to public voice. */
   requestPrivate(identityId: IdentityId | null): void;
+  /** Send a shared-activity message to one member, or to everyone with `to: null`. */
+  sendApp(channel: AppChannel, to: IdentityId | null, data: string): boolean;
+  /** Receive shared-activity messages from other members; returns an unsubscribe. */
+  onApp(listener: (message: AppMessage) => void): () => void;
 }
 export interface DiagnosticEntry { test: string; status: 'PASS' | 'FAIL' | 'UNVERIFIED' | 'UNSUPPORTED'; detail: string }
 export interface AppView {

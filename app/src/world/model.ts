@@ -70,15 +70,22 @@ export function stepPosition(
   const dt = Math.max(0, Math.min(Number.isFinite(dtSeconds) ? dtSeconds : 0, 0.05));
   const length = Math.hypot(vector.x, vector.y) || 1;
   const radius = 9;
-  const inside = (x: number, y: number) => x >= bounds.x + radius && x <= bounds.x + bounds.w - radius
-    && y >= bounds.y + radius && y <= bounds.y + bounds.h - radius
-    && !obstacles.some((rect) => circleHitsRect(x, y, radius, rect));
+  const inBounds = (x: number, y: number) => x >= bounds.x + radius && x <= bounds.x + bounds.w - radius
+    && y >= bounds.y + radius && y <= bounds.y + bounds.h - radius;
+  const free = (x: number, y: number) => inBounds(x, y) && !obstacles.some((rect) => circleHitsRect(x, y, radius, rect));
+  // A player already overlapping an obstacle (a spawn point under a new
+  // object, an object moved onto them) may walk out instead of freezing.
+  const inside = free(from.x, from.y) ? free : inBounds;
   let x = from.x;
   let y = from.y;
-  const nextX = x + vector.x / length * speed * dt;
-  if (inside(nextX, y)) x = nextX;
-  const nextY = y + vector.y / length * speed * dt;
-  if (inside(x, nextY)) y = nextY;
+  const distance = Math.max(0, speed) * dt;
+  const steps = Math.max(1, Math.ceil(distance / 4));
+  for (let i = 0; i < steps; i++) {
+    const nextX = x + vector.x / length * distance / steps;
+    if (inside(nextX, y)) x = nextX;
+    const nextY = y + vector.y / length * distance / steps;
+    if (inside(x, nextY)) y = nextY;
+  }
   return { x, y, direction, moving: x !== from.x || y !== from.y };
 }
 
@@ -87,6 +94,111 @@ export function worldObstacles(occupied: readonly OccupiedParcel[]): Rect[] {
     ...occupied.map(({ parcel }) => ({ x: parcel.x - 2, y: parcel.y - 6, w: parcel.w + 4, h: parcel.h + 5 })),
     ...WORLD_TREES.map(({ x, y }) => ({ x: x - 11, y: y - 16, w: 22, h: 25 })),
   ];
+}
+
+/**
+ * A walkable route for click-to-walk: A* over an 8px grid using the same
+ * collision as stepPosition, then trimmed to the corners that matter. The goal
+ * snaps to the nearest walkable cell, since you usually click on the thing you
+ * want to use rather than next to it. Returns null when nothing is reachable.
+ */
+export function findPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  obstacles: readonly Rect[],
+  bounds: Rect = { x: 0, y: 0, w: LIMITS.worldWidth, h: LIMITS.worldHeight },
+): { x: number; y: number }[] | null {
+  const cell = 8;
+  const radius = 9;
+  const cols = Math.floor(bounds.w / cell);
+  const rows = Math.floor(bounds.h / cell);
+  const center = (i: number) => ({ x: bounds.x + (i % cols) * cell + cell / 2, y: bounds.y + Math.floor(i / cols) * cell + cell / 2 });
+  const free = (x: number, y: number) => x >= bounds.x + radius && x <= bounds.x + bounds.w - radius
+    && y >= bounds.y + radius && y <= bounds.y + bounds.h - radius
+    && !obstacles.some((rect) => circleHitsRect(x, y, radius, rect));
+  const walkable = new Uint8Array(cols * rows);
+  for (let i = 0; i < walkable.length; i++) { const c = center(i); walkable[i] = free(c.x, c.y) ? 1 : 0; }
+  const indexOf = (p: { x: number; y: number }) => {
+    const col = Math.max(0, Math.min(cols - 1, Math.floor((p.x - bounds.x) / cell)));
+    const row = Math.max(0, Math.min(rows - 1, Math.floor((p.y - bounds.y) / cell)));
+    return row * cols + col;
+  };
+  const nearestWalkable = (start: number): number => {
+    if (walkable[start]) return start;
+    const seen = new Uint8Array(cols * rows);
+    const queue = [start];
+    seen[start] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head];
+      if (walkable[i]) return i;
+      const col = i % cols;
+      for (const n of [i - cols, i + cols, col > 0 ? i - 1 : -1, col < cols - 1 ? i + 1 : -1]) {
+        if (n >= 0 && n < seen.length && !seen[n]) { seen[n] = 1; queue.push(n); }
+      }
+    }
+    return -1;
+  };
+  const start = indexOf(from);
+  const goal = nearestWalkable(indexOf(to));
+  if (goal < 0) return null;
+  // Someone standing inside an obstacle may still leave it.
+  walkable[start] = 1;
+  const g = new Float64Array(cols * rows).fill(Infinity);
+  const came = new Int32Array(cols * rows).fill(-1);
+  const closed = new Uint8Array(cols * rows);
+  const open: number[] = [start];
+  const h = (i: number) => { const a = center(i); const b = center(goal); return Math.hypot(a.x - b.x, a.y - b.y); };
+  const f = new Float64Array(cols * rows).fill(Infinity);
+  g[start] = 0;
+  f[start] = h(start);
+  while (open.length) {
+    let best = 0;
+    for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[best]]) best = k;
+    const current = open.splice(best, 1)[0];
+    if (current === goal) break;
+    closed[current] = 1;
+    const col = current % cols;
+    const row = Math.floor(current / cols);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const c = col + dx; const r = row + dy;
+        if (c < 0 || r < 0 || c >= cols || r >= rows) continue;
+        const n = r * cols + c;
+        if (!walkable[n] || closed[n]) continue;
+        // No cutting corners between two blocked cells.
+        if (dx && dy && (!walkable[row * cols + c] || !walkable[r * cols + col])) continue;
+        const cost = g[current] + (dx && dy ? Math.SQRT2 : 1) * cell;
+        if (cost < g[n]) {
+          if (g[n] === Infinity) open.push(n);
+          g[n] = cost;
+          f[n] = cost + h(n);
+          came[n] = current;
+        }
+      }
+    }
+  }
+  if (goal !== start && came[goal] < 0) return null;
+  const cells: number[] = [];
+  for (let i = goal; i !== -1 && i !== start; i = came[i]) cells.unshift(i);
+  const points = cells.map(center);
+  const target = free(to.x, to.y) ? { x: to.x, y: to.y } : null;
+  if (target) points.push(target);
+  // Keep only the waypoints needed to go around things.
+  const clear = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 4);
+    for (let s = 1; s <= steps; s++) if (!free(a.x + (b.x - a.x) * s / steps, a.y + (b.y - a.y) * s / steps)) return false;
+    return true;
+  };
+  const route: { x: number; y: number }[] = [];
+  let anchor = { x: from.x, y: from.y };
+  for (let k = 0; k < points.length; k++) {
+    const next = points[k + 1];
+    if (next && clear(anchor, next)) continue;
+    route.push(points[k]);
+    anchor = points[k];
+  }
+  return route;
 }
 
 export function closestDoor(position: Position, occupied: readonly OccupiedParcel[], maxDistance = 32): OccupiedParcel | null {

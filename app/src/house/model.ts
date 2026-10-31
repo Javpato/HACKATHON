@@ -23,23 +23,23 @@ export const FURNITURE_LABELS: Record<FurnitureKind, string> = {
 };
 
 export const FURNITURE_ACTION_LABELS: Record<FurnitureKind, string> = {
-  desk: 'Abrir cuaderno de código',
-  bookshelf: 'Abrir lectura / PDF local',
+  desk: 'Proyectos en VS Code',
+  bookshelf: 'Tarjetas de repaso',
   board: 'Abrir pizarra colaborativa',
   plant: 'Cuidar planta',
   table: 'Mesa de estudio y voz',
   frame: 'Ver cuadro / imagen',
-  cabinet: 'Vincular archivo / proyecto',
+  cabinet: 'Abrir apuntes',
 };
 
 export const FURNITURE_PROMPT_LABELS: Record<FurnitureKind, string> = {
-  desk: 'E · Cuaderno de código',
-  bookshelf: 'E · Lectura / PDF',
+  desk: 'E · Proyectos',
+  bookshelf: 'E · Tarjetas',
   board: 'E · Abrir Pizarra',
   plant: 'E · Cuidar planta',
   table: 'E · Mesa de voz',
   frame: 'E · Ver cuadro',
-  cabinet: 'E · Abrir archivo',
+  cabinet: 'E · Apuntes',
 };
 
 export function furnitureRect(item: Furniture): Rect {
@@ -47,7 +47,8 @@ export function furnitureRect(item: Furniture): Rect {
     desk: [69, 39], bookshelf: [45, 60], board: [66, 28], plant: [27, 27],
     table: [58, 42], frame: [34, 22], cabinet: [48, 45],
   };
-  const [w, h] = size[item.kind];
+  const rotated = item.rotation === 90 || item.rotation === 270;
+  const [w, h] = rotated ? [...size[item.kind]].reverse() : size[item.kind];
   return { x: item.x, y: item.y, w, h };
 }
 
@@ -99,8 +100,8 @@ export function houseObstacles(house: PublicHouse): Rect[] {
     .map((item) => furnitureRect(item));
 }
 
-export function stepHousePosition(from: Position, vector: { x: number; y: number }, dt: number, house: PublicHouse): Position {
-  return stepPosition(from, vector, dt, houseObstacles(house), HOUSE_BOUNDS, 105);
+export function stepHousePosition(from: Position, vector: { x: number; y: number }, dt: number, house: PublicHouse, speedMultiplier = 1): Position {
+  return stepPosition(from, vector, dt, houseObstacles(house), HOUSE_BOUNDS, 105 * speedMultiplier);
 }
 
 export function hitFurniture(house: PublicHouse, x: number, y: number): Furniture | null {

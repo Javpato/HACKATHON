@@ -3,7 +3,7 @@ import type { Contact, EncryptedIdentity, PublicHouse } from '../protocol/types'
 
 const text = (max: number) => z.string().max(max);
 const identity = z.object({ fingerprint: text(128).min(16), publicKey: text(2048).min(32), displayName: text(32).min(1), color: z.string().regex(/^#[0-9a-f]{6}$/i) }).strict();
-const furniture = z.object({ id: text(80).min(1), kind: z.enum(['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet']), x: z.number().finite().min(0).max(736), y: z.number().finite().min(0).max(400), publicAlias: text(48) }).strict();
+const furniture = z.object({ rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional(), id: text(80).min(1), kind: z.enum(['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet']), x: z.number().finite().min(0).max(736), y: z.number().finite().min(0).max(400), publicAlias: text(48) }).strict();
 export const houseSchema = z.object({ ownerId: text(128).min(1), revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), name: text(48).min(1), access: z.enum(['open', 'ask', 'locked']), theme: z.enum(['mint', 'peach']), furniture: z.array(furniture).max(32) }).strict().refine(h => new Set(h.furniture.map(f => f.id)).size === h.furniture.length, 'Duplicate furniture id');
 const contact = z.object({ schemaVersion: z.literal(1), identity, friendCode: text(128).min(1) }).strict();
 const encrypted = z.object({ v: z.literal(1), kdf: z.literal('PBKDF2-SHA256'), iterations: z.number().int().min(100_000).max(2_000_000), salt: text(128), iv: text(128), ciphertext: text(8192), publicIdentity: identity }).strict();
@@ -35,7 +35,7 @@ export function serializeLocalData(value: LocalData): string {
   return result;
 }
 export function newLocalData(): LocalData {
-  return { schemaVersion: 1, profile: { displayName: 'Explorador', color: '#df8a72' }, house: null, friendCode: crypto.randomUUID(), contacts: [], encryptedIdentity: null, editor: '// Tu proyecto empieza aquí. Este texto se queda en tu equipo.\n\nfunction saludar(nombre: string) {\n  return `Hola, ${nombre} 🌱`;\n}\n', projectLinks: {} };
+  return { schemaVersion: 1, profile: { displayName: 'Explorador', color: '#df8a72' }, house: null, friendCode: crypto.randomUUID(), contacts: [], encryptedIdentity: null, editor: '', projectLinks: {} };
 }
 
 export interface LocalStore { kind: 'sqlite' | 'indexeddb' | 'memory'; load(): Promise<LocalData | null>; save(data: LocalData): Promise<void>; close(): void }
@@ -43,7 +43,7 @@ export interface LocalStore { kind: 'sqlite' | 'indexeddb' | 'memory'; load(): P
 /** Use an explicit projection even when callers pass extended local objects. */
 export function publicHouse(house: PublicHouse, ownerId = house.ownerId): PublicHouse {
   return houseSchema.parse({ ownerId, revision: house.revision, name: house.name, access: house.access, theme: house.theme,
-    furniture: house.furniture.map(f => ({ id: f.id, kind: f.kind, x: f.x, y: f.y, publicAlias: f.publicAlias })) });
+    furniture: house.furniture.map(f => ({ id: f.id, kind: f.kind, x: f.x, y: f.y, publicAlias: f.publicAlias, ...(f.rotation !== undefined ? { rotation: f.rotation } : {}) })) });
 }
 
 export function isNative(): boolean { return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window; }

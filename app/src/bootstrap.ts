@@ -4,7 +4,7 @@ import { createStudyUI } from './ui/app';
 import { MediaDiagnostic } from './diagnostics/media-diagnostic';
 import { chooseLocalFile, downloadLocal, showLocalPreview } from './local-bridge/files';
 import { newLocalData, openLocalStore, publicHouse, SaveQueue, type LocalData } from './storage/local-store';
-import type { AppActions, AppView, PublicHouse } from './protocol/types';
+import type { AppActions, AppMessage, AppView, PublicHouse } from './protocol/types';
 
 const activePhases = new Set(['SIGNALING', 'CONNECTING', 'AUTHENTICATING', 'PENDING_APPROVAL', 'JOINED', 'RECONNECTING']);
 function initialHouse(ownerId: string): PublicHouse {
@@ -51,7 +51,13 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     await writes.save(data);
   };
   let unsubscribe = () => {};
-  const subscribe = () => { unsubscribe = client.subscribe(view => { network = view; update(); }); };
+  // Activity listeners belong to the UI and outlive any one client.
+  const appListeners = new Set<(message: AppMessage) => void>();
+  const subscribe = () => {
+    const offView = client.subscribe(view => { network = view; update(); });
+    const offApp = client.onApp(message => { for (const listener of appListeners) listener(message); });
+    unsubscribe = () => { offView(); offApp(); };
+  };
   const replaceClient = () => { unsubscribe(); client.dispose(); client = new VillageClient(identity, ownHouse); subscribe(); };
   const requireOffline = () => { if (activePhases.has(network.phase)) throw new Error('Sal del vecindario antes de cambiar tu identidad o perfil.'); };
   const requireUnlocked = () => { if (lockedIdentity) throw new Error('Desbloquea tu identidad guardada antes de conectar.'); };
@@ -81,6 +87,8 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     startScreen: () => run(() => client.startScreen()),
     stopScreen: () => client.stopScreen(),
     requestPrivate: (identityId) => client.requestPrivate(identityId),
+    sendApp: (channel, to, data) => client.sendApp(channel, to, data),
+    onApp: listener => { appListeners.add(listener); return () => { appListeners.delete(listener); }; },
     updateProfile: (displayName, color) => run(async () => {
       requireOffline();
       const name = displayName.trim().slice(0, 32);

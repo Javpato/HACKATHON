@@ -1,3 +1,4 @@
+import { areaOf, isInScene } from '../src/world/location';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setTimeout as waitReal } from 'node:timers/promises';
 import { generateIdentity, randomId } from '../src/identity';
@@ -95,6 +96,37 @@ async function admit(host: VillageClient, guest: VillageClient): Promise<void> {
 }
 
 describe('session integration using a FAKE in-memory transport, real WebCrypto (not two computers)', () => {
+  it('relays stationary portal arrivals, isolates areas and media, and includes the area in late-join snapshots', async () => {
+    const network = new FakeNetwork(), clock = new ManualClock();
+    const host = await client(network, clock, 'Host'), guest = await client(network, clock, 'Guest');
+    await host.instance.openVillage(); await admit(host.instance, guest.instance);
+    const arrival = { areaId: 'community' as const, x: 72, y: 220, direction: 'right' as const, moving: false };
+    guest.instance.move(arrival);
+    await until(() => areaOf(host.instance.view.members.find(m => m.identity.fingerprint === guest.identity.public.fingerprint)!.position) === 'community');
+    const remote = host.instance.view.members.find(m => m.identity.fingerprint === guest.identity.public.fingerprint)!;
+    expect(remote.position).toEqual(arrival);
+    expect(isInScene(remote, 'residential', null)).toBe(false);
+    expect(isInScene(remote, 'community', null)).toBe(true);
+    await until(() => host.instance.view.media.audience.startsWith('La aldea · 0'));
+    await until(() => guest.instance.view.media.audience.startsWith('Plaza Comunitaria · 0'));
+
+    host.instance.move({ ...arrival, x: 80 });
+    await until(() => guest.instance.view.media.audience.startsWith('Plaza Comunitaria · 1'));
+    const late = await client(network, clock, 'Late'); await admit(host.instance, late.instance);
+    expect(late.instance.view.members.filter(m => areaOf(m.position) === 'community')).toHaveLength(2);
+    expect(late.instance.view.media.audience).toMatch(/^La aldea · 0/);
+
+    // A second transition at the exact same clock time must bypass movement throttling.
+    guest.instance.move({ ...arrival, areaId: 'study', x: 696 });
+    await until(() => late.instance.view.members.some(m => m.identity.fingerprint === guest.identity.public.fingerprint && areaOf(m.position) === 'study'));
+    await until(() => host.instance.view.media.audience.startsWith('Plaza Comunitaria · 0'));
+    await until(() => guest.instance.view.media.audience.startsWith('Biblioteca y Estudio · 0'));
+    guest.instance.move({ ...arrival, areaId: 'residential', x: 690, y: 215 });
+    await until(() => late.instance.view.media.audience.startsWith('La aldea · 1'));
+    const back = late.instance.view.members.find(m => m.identity.fingerprint === guest.identity.public.fingerprint)!;
+    expect(back.position).toMatchObject({ areaId: 'residential', x: 690, y: 215, moving: false });
+  });
+
   it('does not connect at construction, requires manual admission, and creates authenticated mesh', async () => {
     const network = new FakeNetwork(), clock = new ManualClock();
     const host = await client(network, clock, 'Host'), b = await client(network, clock, 'B'), c = await client(network, clock, 'C');
@@ -113,6 +145,37 @@ describe('session integration using a FAKE in-memory transport, real WebCrypto (
     expect(b.instance.view.members.map(member => member.slot)).toEqual([0, 1, 2]);
     expect(JSON.stringify(network.messages)).not.toMatch(/privateKey|filePath|sourceCode|sqlQuery/);
   });
+  it('routes shared-activity messages through the host and names the real sender', async () => {
+    const network = new FakeNetwork(), clock = new ManualClock();
+    const host = await client(network, clock, 'Host'), b = await client(network, clock, 'B'), c = await client(network, clock, 'C');
+    await host.instance.openVillage(); await admit(host.instance, b.instance); await admit(host.instance, c.instance);
+    const got = { host: [] as string[], b: [] as string[], c: [] as string[] };
+    host.instance.onApp(m => got.host.push(`${m.channel}:${m.from === b.identity.public.fingerprint ? 'B' : m.from === c.identity.public.fingerprint ? 'C' : 'H'}:${m.data}`));
+    b.instance.onApp(m => got.b.push(m.data));
+    c.instance.onApp(m => got.c.push(`${m.from === b.identity.public.fingerprint ? 'B' : m.from === host.identity.public.fingerprint ? 'H' : '?'}:${m.data}`));
+    expect(host.instance.view.hostId).toBe(host.identity.public.fingerprint);
+    expect(b.instance.view.hostId).toBe(host.identity.public.fingerprint);
+
+    expect(b.instance.sendApp('gartic', c.identity.public.fingerprint, '{"t":"x"}')).toBe(true);
+    await until(() => got.c.length === 1, 'direct delivery via host');
+    expect(got.c[0]).toBe('B:{"t":"x"}');
+    expect(got.host).toHaveLength(0);
+
+    b.instance.sendApp('projects', null, '{"t":"all"}');
+    await until(() => got.host.length === 1 && got.c.length === 2, 'broadcast');
+    expect(got.host[0]).toBe('projects:B:{"t":"all"}');
+    expect(got.b).toHaveLength(0);
+
+    host.instance.sendApp('werewolves', b.identity.public.fingerprint, '{"t":"view"}');
+    await until(() => got.b.length === 1, 'host to member');
+
+    // Too big, or to yourself, never leaves.
+    expect(b.instance.sendApp('gartic', null, 'x'.repeat(60_000))).toBe(false);
+    expect(b.instance.sendApp('gartic', b.identity.public.fingerprint, '{}{}')).toBe(false);
+    // A member cannot pose as the host's relay.
+    expect(network.messages.every(m => m.message.kind !== 'event' || m.message.payload.type !== 'app.relay' || m.from === [...network.endpoints.keys()][0])).toBe(true);
+  });
+
   it('rotates invitations and rejects old generations without leaking roster', async () => {
     const network = new FakeNetwork(), clock = new ManualClock(); const host = await client(network, clock, 'Host'), guest = await client(network, clock, 'Guest');
     await host.instance.openVillage(); const old = host.instance.view.invite!; host.instance.rotateInvite();

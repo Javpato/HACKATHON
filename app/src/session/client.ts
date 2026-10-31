@@ -1,7 +1,8 @@
+import { AREA_NAMES, areaOf, isInScene } from '../world/location';
 import { canonical, randomId, sign, validatePublicIdentity, verify } from '../identity';
 import { MediaManager, type MediaDevicesAdapter, type MediaPeer } from '../media/manager';
 import { houseSchema, positionSchema, strokeSchema, type Hello, type Invite, type Payload, type SignedHouse, type SignedStroke, type Transcript, type WireMessage } from '../protocol/schema';
-import { LIMITS, type BoardStroke, type LocalIdentity, type Member, type NetworkView, type Position, type PublicHouse, type PublicIdentity, type SessionPhase, type VillageActions, type VisitRequest } from '../protocol/types';
+import { LIMITS, type AppChannel, type AppMessage, type BoardStroke, type LocalIdentity, type Member, type NetworkView, type Position, type PublicHouse, type PublicIdentity, type SessionPhase, type VillageActions, type VisitRequest } from '../protocol/types';
 import { createInvite, encodeInvite, parseInvite } from '../signaling/invite';
 import { createPeerEndpoint } from '../signaling/peerjs';
 import { BoundedChannel } from '../transport/bounded-channel';
@@ -57,7 +58,7 @@ interface Link {
   unsubscribe: (() => void)[];
 }
 interface PendingVisit extends VisitRequest { visitorId: string; created: number }
-const initialPosition = (): Position => ({ x: 384, y: 240, direction: 'down', moving: false });
+const initialPosition = (): Position => ({ areaId: 'residential', x: 384, y: 215, direction: 'down', moving: false });
 const activePhases: SessionPhase[] = ['SIGNALING', 'CONNECTING', 'AUTHENTICATING', 'PENDING_APPROVAL', 'JOINED', 'RECONNECTING'];
 
 export class VillageClient implements VillageActions {
@@ -79,6 +80,7 @@ export class VillageClient implements VillageActions {
   private lastReconnect = -Infinity;
   private error: string | null = null;
   private listeners = new Set<(view: NetworkView) => void>();
+  private appListeners = new Set<(message: AppMessage) => void>();
   private media: MediaManager;
   private board = new BoardStore();
   /** Who I want a private call with, and who every other member wants one with. */
@@ -110,7 +112,7 @@ export class VillageClient implements VillageActions {
   get view(): NetworkView {
     const room = this.members.get(this.id)?.houseId ?? this.id;
     return {
-      phase: this.phase, isHost: this.isHost, sessionId: this.sessionId,
+      phase: this.phase, isHost: this.isHost, hostId: this.hostId, sessionId: this.sessionId,
       invite: this.isHost && this.invite ? encodeInvite(this.invite) : null,
       members: structuredClone([...this.members.values()].sort((a, b) => a.slot - b.slot)),
       houses: structuredClone([...this.houses.values()].map(item => item.house)),
@@ -128,6 +130,19 @@ export class VillageClient implements VillageActions {
   }
   private get id(): string { return this.identity.public.fingerprint; }
   subscribe(listener: (view: NetworkView) => void): () => void { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
+  onApp(listener: (message: AppMessage) => void): () => void { this.appListeners.add(listener); return () => this.appListeners.delete(listener); }
+  private deliverApp(message: AppMessage): void {
+    for (const listener of this.appListeners) { try { listener(message); } catch { /* An activity must not disrupt the protocol. */ } }
+  }
+  /** Shared activities. The host routes; everyone else only ever talks to the host. */
+  sendApp(channel: AppChannel, to: string | null, data: string): boolean {
+    if (this.phase !== 'JOINED' || data.length < 2 || data.length > LIMITS.appData) return false;
+    if (to === this.id) return false;
+    if (!this.isHost) return this.sendHost({ type: 'app.send', channel, to, data });
+    if (to !== null) { const link = this.linkFor(to); return !!link && this.send(link, { type: 'app.relay', channel, from: this.id, data }); }
+    this.broadcast({ type: 'app.relay', channel, from: this.id, data });
+    return true;
+  }
   private notify(): void {
     if (this.disposed) return;
     const view = this.view;
@@ -420,9 +435,14 @@ export class VillageClient implements VillageActions {
     if (payload.type === 'house.kick') { if (!this.isHost) throw new Error('Wrong owner kick route'); this.removeVisitor(sender, payload.identityId); return; }
     if (payload.type === 'player.position') {
       if (!this.isHost) throw new Error('Wrong position route'); const member = this.members.get(sender);
-      if (member) { member.position = payload.position; this.broadcast({ type: 'player.relay', identityId: sender, position: payload.position }, `position/${sender}`); this.notify(); } return;
+      if (member) {
+        const changedArea = areaOf(member.position) !== areaOf(payload.position);
+        member.position = payload.position;
+        this.broadcast({ type: 'player.relay', identityId: sender, position: payload.position }, `position/${sender}`);
+        if (changedArea) this.rosterChanged(); else this.notify();
+      } return;
     }
-    if (payload.type === 'player.relay') { if (!fromHost || this.isHost) throw new Error('Wrong position relay'); const member = this.members.get(payload.identityId); if (member) { member.position = payload.position; this.notify(); } return; }
+    if (payload.type === 'player.relay') { if (!fromHost || this.isHost) throw new Error('Wrong position relay'); const member = this.members.get(payload.identityId); if (member) { const changedArea = areaOf(member.position) !== areaOf(payload.position); member.position = payload.position; if (changedArea) this.syncMedia(); this.notify(); } return; }
     if (payload.type === 'board.stroke') { await this.receiveStroke(link, payload.document, false); return; }
     if (payload.type === 'board.sync.request') {
       if (!this.sameRoom(sender, payload.boardId)) throw new Error('Board outside authorized house');
@@ -444,6 +464,20 @@ export class VillageClient implements VillageActions {
       if (!this.active(link)) return;
       if (payload.next !== null) { link.syncExpected = payload.next; this.send(link, { type: 'board.sync.request', boardId: payload.boardId, cursor: payload.next }); } else link.syncExpected = undefined;
       return;
+    }
+    if (payload.type === 'app.send') {
+      if (!this.isHost) throw new Error('Only the coordinator routes activities');
+      const relay: Payload = { type: 'app.relay', channel: payload.channel, from: sender, data: payload.data };
+      if (payload.to === null) {
+        for (const other of this.links) if (other !== link && other.approved) this.send(other, relay);
+        this.deliverApp({ channel: payload.channel, from: sender, data: payload.data });
+      } else if (payload.to === this.id) this.deliverApp({ channel: payload.channel, from: sender, data: payload.data });
+      else { const target = this.linkFor(payload.to); if (target) this.send(target, relay); }
+      return;
+    }
+    if (payload.type === 'app.relay') {
+      if (!fromHost || this.isHost || payload.from === this.id || (payload.from !== sender && !this.members.get(payload.from)?.connected)) throw new Error('Wrong activity relay');
+      this.deliverApp({ channel: payload.channel, from: payload.from, data: payload.data }); return;
     }
     throw new Error('Unsupported event');
   }
@@ -522,13 +556,17 @@ export class VillageClient implements VillageActions {
     if (link) this.clock.setTimeout(() => this.closeLink(link, false), 100);
   }
   move(position: Position): void {
-    const parsed = positionSchema.safeParse(position);
+    const previous = this.members.get(this.id)?.position;
+    const parsed = positionSchema.safeParse({ ...position, areaId: position.areaId ?? (previous ? areaOf(previous) : 'residential') });
     if (!parsed.success || this.phase !== 'JOINED') return;
-    const self = this.members.get(this.id); if (self) self.position = parsed.data;
+    const self = this.members.get(this.id);
+    const changedArea = !!self && areaOf(self.position) !== areaOf(parsed.data);
+    if (self) self.position = parsed.data;
     this.pendingPosition = parsed.data;
     const elapsed = this.clock.now() - this.lastPositionSent;
-    if (elapsed >= 100) this.flushPosition();
+    if (changedArea || elapsed >= 100) this.flushPosition();
     else if (!this.moveTimer) this.moveTimer = this.clock.setTimeout(() => { this.moveTimer = undefined; this.flushPosition(); }, 100 - elapsed);
+    if (changedArea) { if (this.isHost) this.rosterChanged(); else this.syncMedia(); }
     this.notify();
   }
   private flushPosition(): void {
@@ -645,10 +683,10 @@ export class VillageClient implements VillageActions {
       roomName = `Privado con ${this.members.get(partner)?.identity.displayName ?? 'alguien'}`;
       audience = [partner];
     } else {
-      room = self.houseId ? `house:${self.houseId}` : 'village';
-      roomName = self.houseId ? `Casa: ${this.houses.get(self.houseId)?.house.name ?? 'Casa'}` : 'La aldea';
+      room = self.houseId ? `house:${self.houseId}` : areaOf(self.position) === 'residential' ? 'village' : `area:${areaOf(self.position)}`;
+      roomName = self.houseId ? `Casa: ${this.houses.get(self.houseId)?.house.name ?? 'Casa'}` : AREA_NAMES[areaOf(self.position)];
       audience = [...this.members.values()]
-        .filter(member => member.identity.fingerprint !== this.id && member.connected && member.houseId === self.houseId && !this.partnerOf(member.identity.fingerprint))
+        .filter(member => member.identity.fingerprint !== this.id && isInScene(member, areaOf(self.position), self.houseId) && !this.partnerOf(member.identity.fingerprint))
         .map(member => member.identity.fingerprint);
     }
     const peers: MediaPeer[] = [];

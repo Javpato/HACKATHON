@@ -5,18 +5,23 @@ import { test, expect } from '@playwright/test';
 // second host. They are NOT evidence of real microphone/screen capture, Tauri
 // WebKitGTK behaviour, or two-host operation; those remain UNVERIFIED.
 
-const SECTIONS: ReadonlyArray<readonly [string, string]> = [
-  ['La aldea', 'La aldea'],
-  ['Mi casa', 'Mi rincón de estudio'],
-  ['Contactos', 'Contactos'],
-];
+type Page = import('@playwright/test').Page;
 
-async function openHouseWhiteboard(page: import('@playwright/test').Page, index = 0) {
-  await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).first().click();
+/** Everything is reached from the phone, the way the player does it. */
+async function phoneApp(page: Page, app: string) {
+  await page.getByTestId('phone-button').click();
+  await page.getByTestId(`phone-${app}`).click();
+  if (app === 'decorate' && !await page.locator('.sv-house-editor > details').evaluate(el => (el as HTMLDetailsElement).open)) await page.locator('.sv-house-editor > details > summary').click();
+}
+
+async function openHouseWhiteboard(page: Page, index = 0) {
+  await phoneApp(page, 'decorate');
   const boardItem = page.locator('.sv-furniture-item', { hasText: 'Pizarra' }).nth(index);
   await expect(boardItem).toBeVisible();
   await boardItem.dblclick();
 }
+
+const place = (page: Page) => page.locator('.sv-hud-place h1');
 
 test('the village shell loads offline and contacts no external host', async ({ page }) => {
   const external: string[] = [];
@@ -25,8 +30,9 @@ test('the village shell loads offline and contacts no external host', async ({ p
   });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'La aldea', exact: true })).toBeVisible();
-  await expect(page.getByText('Sin sesión').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Abrir mi aldea' })).toBeVisible();
+  await phoneApp(page, 'village');
+  await expect(page.locator('.sv-session-card')).toContainText('Sin sesión');
+  await expect(page.getByRole('button', { name: 'Abrir mi aldea a otras personas' })).toBeVisible();
   expect(external).toEqual([]);
 });
 
@@ -39,21 +45,27 @@ test('the declared favicon resolves instead of falling back to a 404', async ({ 
   expect(res.headers()['content-type']).toContain('image/svg+xml');
 });
 
-test('every local section opens and marks itself as the current page, and left-side Pizarra button is removed', async ({ page }) => {
+test('the phone opens every place and app, and nothing else crowds the village', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.sv-nav-item', { hasText: 'Pizarra' })).toHaveCount(0);
-  for (const [label, heading] of SECTIONS) {
-    await page.locator('.sv-nav-item', { hasText: label }).first().click();
-    const active = page.locator('.sv-nav-item[aria-current="page"]');
-    await expect(active).toHaveCount(1);
-    await expect(active).toContainText(label);
-    await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible();
-  }
+  await expect(page.locator('.sv-sidebar, .sv-inspector, .sv-nav-item')).toHaveCount(0);
+  await phoneApp(page, 'house');
+  await expect(place(page)).toHaveText('Mi rincón de estudio');
+  await phoneApp(page, 'house');
+  await expect(place(page)).toHaveText('La aldea');
+  await phoneApp(page, 'contacts');
+  await expect(page.getByRole('heading', { name: 'Personas de confianza' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sv-phone')).toBeHidden();
+  // M toggles the phone from the keyboard.
+  await page.keyboard.press('m');
+  await expect(page.locator('.sv-phone')).toBeVisible();
+  await page.keyboard.press('m');
+  await expect(page.locator('.sv-phone')).toBeHidden();
 });
 
 test('a saved display name survives a reload through local persistence', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '⚙ Ajustes' }).click();
+  await phoneApp(page, 'settings');
   const name = page.getByLabel('Nombre visible', { exact: true });
   await expect(name).toHaveValue('Explorador');
   await name.fill('Vecina Ada');
@@ -61,7 +73,7 @@ test('a saved display name survives a reload through local persistence', async (
   await expect(page.getByLabel('Nombre visible', { exact: true })).toHaveValue('Vecina Ada');
 
   await page.reload();
-  await page.getByRole('button', { name: '⚙ Ajustes' }).click();
+  await phoneApp(page, 'settings');
   await expect(page.getByLabel('Nombre visible', { exact: true })).toHaveValue('Vecina Ada');
 });
 
@@ -136,29 +148,28 @@ test('opening the board from a room offers a way back into that same room', asyn
   const back = page.getByRole('button', { name: '← Volver a mi casa' });
   await expect(back).toBeVisible();
   await back.click();
-  await expect(page.locator('.sv-nav-item[aria-current="page"]')).toContainText('Mi casa');
+  await expect(place(page)).toHaveText('Mi rincón de estudio');
 
   // Escape from the board also steps back into the room, not out to the village.
   await openHouseWhiteboard(page, 0);
   await page.keyboard.press('Escape');
-  await expect(page.locator('.sv-nav-item[aria-current="page"]')).toContainText('Mi casa');
+  await expect(place(page)).toHaveText('Mi rincón de estudio');
 });
 
 test('E only leaves a room from the doorway', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).first().click();
-  const canvas = page.locator('canvas:visible').first();
-  await canvas.click({ position: { x: 10, y: 10 } });
+  await phoneApp(page, 'house');
+  await expect(place(page)).toHaveText('Mi rincón de estudio');
   // At the spawn point, in the middle of the floor, E must do nothing.
   await page.keyboard.press('e');
-  await expect(page.locator('.sv-nav-item[aria-current="page"]')).toContainText('Mi casa');
+  await expect(place(page)).toHaveText('Mi rincón de estudio');
 
   // Walk down onto the doormat, then E leaves to the village.
   await page.keyboard.down('KeyS');
   await page.waitForTimeout(800);
   await page.keyboard.up('KeyS');
   await page.keyboard.press('e');
-  await expect(page.locator('.sv-nav-item[aria-current="page"]')).toContainText('La aldea');
+  await expect(place(page)).toHaveText('La aldea');
 });
 
 test.describe('whiteboard tools', () => {
@@ -168,7 +179,13 @@ test.describe('whiteboard tools', () => {
     const canvas = page.locator('.sv-board-wrap canvas');
     await expect(canvas).toBeVisible();
     const tool = async (name: string) => {
-      await page.locator('.sv-segment-button', { hasText: name }).first().click();
+      const target = page.locator('.sv-segment-button', { hasText: name }).first();
+      if (!await target.isVisible()) {
+        const more = page.getByRole('button', { name: 'Opciones avanzadas', exact: true });
+        if (await more.getAttribute('aria-expanded') === 'false') await more.click();
+        await page.locator('.sv-board-category > summary', { hasText: name === 'Mano' ? 'Vista' : 'Formas' }).click();
+      }
+      await target.click();
     };
     const undo = page.getByRole('button', { name: '↶ Deshacer' });
     const line = async (yLogic: number) => {
@@ -219,6 +236,8 @@ test.describe('whiteboard tools', () => {
     await tool('Lápiz');
     await line(150);
     await line(250);
+    await page.getByRole('button', { name: 'Opciones avanzadas', exact: true }).click();
+    await page.locator('.sv-board-category > summary', { hasText: 'Trazo y edición' }).click();
     await page.getByRole('button', { name: 'Borrar lo mío' }).click();
     // First click only arms it; nothing is deleted yet.
     await expect(undo).toBeEnabled();
@@ -241,13 +260,18 @@ test.describe('whiteboard tools', () => {
 
   test('zoom controls and ctrl+wheel change the view', async ({ page }) => {
     const { box } = await openBoard(page);
+    await page.getByRole('button', { name: 'Opciones avanzadas', exact: true }).click();
+    await page.locator('.sv-board-category > summary', { hasText: 'Vista' }).click();
     const label = page.locator('.sv-zoom-label');
     await expect(label).toHaveText('100%');
     await page.getByRole('button', { name: 'Acercar' }).click();
     await expect(label).toHaveText('125%');
     await page.getByRole('button', { name: 'Alejar' }).click();
     await expect(label).toHaveText('100%');
-    await page.mouse.move(box.x + 300, box.y + 200);
+    const boardCanvas = page.locator('.sv-board-wrap canvas');
+    await boardCanvas.scrollIntoViewIfNeeded();
+    const currentBox = (await boardCanvas.boundingBox())!;
+    await page.mouse.move(currentBox.x + currentBox.width / 2, currentBox.y + currentBox.height / 2);
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -300);
     await page.keyboard.up('Control');
@@ -288,9 +312,8 @@ test.describe('Mobile phone touch controls & responsive experience', () => {
     // Tap action button
     await actionBtn.click();
 
-    // Verify touch toggle button
-    const toggleBtn = page.locator('.sv-touch-toggle-pill');
-    await expect(toggleBtn).toBeVisible();
+    // The phone stays reachable next to the touch controls.
+    await expect(page.getByTestId('phone-button')).toBeVisible();
   });
 });
 
@@ -308,14 +331,18 @@ test.describe('Multiplayer pixel-art world expansion', () => {
     await page.keyboard.press('e');
     await walkUntil('d', 'Hombres Lobo');
     await page.keyboard.press('e');
-    const modal = page.getByTestId('expansion-modal-overlay');
-    await expect(modal).toBeVisible();
-    await expect(modal).toContainText('Hombres Lobo');
-    await page.getByTestId('werewolves-add-bots-btn').click();
-    await page.getByTestId('werewolves-start-btn').click();
-    await expect(modal).toContainText('Tu rol secreto');
+    const activity = page.getByTestId('expansion-modal-overlay');
+    await expect(activity).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'La mesa de la hoguera' })).toBeVisible();
+    await page.getByRole('button', { name: 'Sentarme a la mesa' }).click();
+    for (let i = 0; i < 3; i += 1) await page.getByRole('button', { name: 'Añadir bot' }).click();
+    await page.getByRole('button', { name: 'Repartir cartas' }).click();
+    await expect(page.getByRole('heading', { name: 'Mira tu carta' })).toBeVisible();
+    await expect(page.locator('.ww-card-team')).toHaveText(/Equipo (aldea|lobos)/);
+    // Other players' cards stay face down for a villager; a wolf may see no other wolf at four players.
+    await expect(page.locator('.ww-seat:not(.is-me) [aria-label="Carta oculta"]')).toHaveCount(3);
     await page.getByTestId('expansion-modal-close').click();
-    await expect(modal).toBeHidden();
+    await expect(activity).toBeHidden();
 
     await walkUntil('a', 'Volver al Barrio Residencial');
     await page.keyboard.press('e');
@@ -323,50 +350,22 @@ test.describe('Multiplayer pixel-art world expansion', () => {
     await page.keyboard.press('e');
     await walkUntil('a', 'Flashcards');
     await page.keyboard.press('e');
-    await expect(modal).toBeVisible();
-    await expect(modal).toContainText('Mazos de Flashcards, Estudio en Grupo y Ollama');
-    // Verify honest Ollama status message ("Ollama was not detected.") and zero fake models
-    await expect(page.getByTestId('ollama-status-message')).toHaveText('Ollama was not detected.');
-    await expect(page.getByTestId('ollama-model-select')).toBeDisabled();
+    const study = page.getByRole('region', { name: 'Tarjetas de estudio' });
+    await expect(study).toBeVisible();
+    await expect(study.getByRole('button', { name: 'Crear mazo' })).toBeVisible();
+    await expect(study.getByRole('button', { name: 'Detectar Ollama' })).not.toBeVisible();
+    await study.getByRole('button', { name: 'Cerrar', exact: true }).click();
 
-    // Verify Manual Flashcard Creation ("Create Manually" alongside "Generate with AI") works end-to-end without AI
-    await expect(page.getByTestId('mode-create-manual-btn')).toBeVisible();
-    await expect(page.getByTestId('mode-generate-ai-btn')).toBeVisible();
-
-    // Switch to Generate with AI -> button is disabled because Ollama is not detected
-    await page.getByTestId('mode-generate-ai-btn').click();
-    await expect(page.getByTestId('flashcard-gen-submit-btn')).toBeDisabled();
-    await expect(page.getByTestId('ai-unavailable-notice')).toContainText('Ollama was not detected.');
-
-    // Switch back to Create Manually -> create a deck, rename it, add cards, reorder, edit, and flip
-    await page.getByTestId('mode-create-manual-btn').click();
-    await page.getByTestId('manual-deck-title-input').fill('Física Clásica Manual');
-    await page.getByTestId('manual-deck-create-btn').click();
-
-    await page.getByTestId('manual-card-question').fill('¿Qué dice la Segunda Ley de Newton?');
-    await page.getByTestId('manual-card-answer').fill('F = m · a');
-    await page.getByTestId('manual-card-hint').fill('Relaciona fuerza, masa y aceleración');
-    await page.getByTestId('manual-card-tags').fill('dinámica, newton');
-    await page.getByTestId('manual-card-explanation').fill('La fuerza neta es proporcional a la aceleración.');
-    await page.getByTestId('manual-card-submit-btn').click();
-
-    // Flip card in interactive study podium
-    const flipCard = page.getByTestId('study-session-flip-card');
-    await expect(flipCard).toContainText('¿Qué dice la Segunda Ley de Newton?');
-    await flipCard.click();
-    await expect(flipCard).toContainText('F = m · a');
-
-    await page.getByTestId('expansion-modal-close').click();
-
-    // Verify Collaborative Project workspace inside Editor local
-    await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).click();
+    // The desk opens the group's VS Code projects, not an in-app code editor.
+    await phoneApp(page, 'decorate');
     await page.locator('.sv-furniture-item', { hasText: 'Escritorio' }).first().dblclick();
-    await expect(page.getByTestId('collab-project-workspace')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Proyectos del grupo' })).toBeVisible();
+    await expect(page.locator('.sv-editor-area')).toHaveCount(0);
   });
 
   test('every whiteboard inside a house is independent and persists its own name and strokes across reopening', async ({ page }) => {
     await page.goto('/');
-    await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).first().click();
+    await phoneApp(page, 'decorate');
 
     // Add a second whiteboard furniture item inside the house
     await page.locator('.sv-house-editor select').last().selectOption('board');
@@ -376,9 +375,12 @@ test.describe('Multiplayer pixel-art world expansion', () => {
 
     // Open Whiteboard #1, rename it, and draw a stroke
     await boardItems.nth(0).dblclick();
+    await page.getByRole('button', { name: 'Opciones avanzadas', exact: true }).click();
+    await page.locator('.sv-board-category > summary', { hasText: 'Pizarra y archivo' }).click();
     const renameInput = page.getByTestId('board-rename-input');
     await renameInput.fill('Pizarra Álgebra');
     await renameInput.dispatchEvent('change');
+    await page.getByRole('button', { name: 'Opciones avanzadas', exact: true }).click();
     const canvas = page.locator('.sv-board-wrap canvas');
     const box1 = (await canvas.boundingBox())!;
     await page.mouse.move(box1.x + 80, box1.y + 80);
@@ -389,12 +391,14 @@ test.describe('Multiplayer pixel-art world expansion', () => {
 
     // Return to house and open Whiteboard #2 -> must be completely empty and have its own independent name!
     await page.getByRole('button', { name: '← Volver a mi casa' }).click();
+    await phoneApp(page, 'decorate');
     await boardItems.nth(1).dblclick();
     await expect(page.getByRole('button', { name: '↶ Deshacer' })).toBeDisabled();
     await expect(page.getByTestId('board-rename-input')).not.toHaveValue('Pizarra Álgebra');
 
     // Return to house and reopen Whiteboard #1 -> its stroke and name persisted!
     await page.getByRole('button', { name: '← Volver a mi casa' }).click();
+    await phoneApp(page, 'decorate');
     await boardItems.nth(0).dblclick();
     await expect(page.getByTestId('board-rename-input')).toHaveValue('Pizarra Álgebra');
     await expect(page.getByRole('button', { name: '↶ Deshacer' })).toBeEnabled();
