@@ -285,6 +285,7 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   const skin = custom?.skinTone || SKIN[Math.floor(tone * SKIN.length) % SKIN.length];
   const hair = custom?.hairColor || HAIR[Math.floor(hash01(id + 'hair') * HAIR.length) % HAIR.length];
   const hairStyle = custom?.hairStyle || 'short';
+  const feminine = custom?.body === 'feminine';
   const accessory = custom?.accessory || 'none';
   const shirt = custom?.outfitColor || identity.color || COLORS.coral;
   const shirtLit = shade(shirt, 26);
@@ -334,14 +335,28 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
 
   // Torso with a lit top-left face and a shaded bottom-right edge.
   const torsoY = -15 - Math.round(squash);
-  fill(ctx, shirtDark, -8, torsoY, 16, 16);
-  fill(ctx, shirt, -8, torsoY, 14, 14);
-  fill(ctx, shirtLit, -8, torsoY, 10, 4);
+  if (feminine) {
+    // Narrower shoulders, a waist and hips.
+    fill(ctx, shirtDark, -7, torsoY, 14, 7);
+    fill(ctx, shirtDark, -6, torsoY + 6, 12, 5);
+    fill(ctx, shirtDark, -7, torsoY + 10, 14, 6);
+    fill(ctx, shirt, -7, torsoY, 12, 6);
+    fill(ctx, shirt, -6, torsoY + 6, 10, 4);
+    fill(ctx, shirt, -7, torsoY + 10, 12, 4);
+    fill(ctx, shirtLit, -7, torsoY, 9, 3);
+  } else {
+    fill(ctx, shirtDark, -8, torsoY, 16, 16);
+    fill(ctx, shirt, -8, torsoY, 14, 14);
+    fill(ctx, shirtLit, -8, torsoY, 10, 4);
+  }
 
   // Arms track the opposite phase of the legs.
   if (facing === 'left' || facing === 'right') {
     const lead = facing === 'right' ? 1 : -1;
-    fill(ctx, shirtDark, (facing === 'right' ? 5 : -9), torsoY + 3 - swing * lead, 4, 9);
+    fill(ctx, shirtDark, (facing === 'right' ? 5 : -9) + (feminine ? (facing === 'right' ? -1 : 1) : 0), torsoY + 3 - swing * lead, feminine ? 3 : 4, 9);
+  } else if (feminine) {
+    fill(ctx, shirtDark, -10, torsoY + 3 + swing, 3, 9);
+    fill(ctx, shirtDark, 7, torsoY + 3 - swing, 3, 9);
   } else {
     fill(ctx, shirtDark, -11, torsoY + 3 + swing, 4, 9);
     fill(ctx, shirtDark, 7, torsoY + 3 - swing, 4, 9);
@@ -354,11 +369,30 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   fill(ctx, shade(skin, -40), -7, headY, 14, 12);
   fill(ctx, skin, -7, headY, 12, 11);
   fill(ctx, shade(skin, 18), -7, headY + 2, 4, 5);
+  const longSides = hairStyle === 'long' || (feminine && hairStyle !== 'ponytail' && hairStyle !== 'bun' && hairStyle !== 'spiky');
+  // Feminine long hair falls past the shoulders.
+  const sideHair = longSides ? (feminine ? 17 : 13) : 9;
+  if (hairStyle === 'bun') {
+    fill(ctx, hair, -3, headY - 7, 6, 5);
+    fill(ctx, shade(hair, 20), -2, headY - 7, 3, 2);
+  }
   if (facing === 'up') {
     // Facing away: the back of the head is all hair.
-    fill(ctx, hair, -7, headY - 2, 14, hairStyle === 'long' ? 15 : 12);
+    fill(ctx, hair, -7, headY - 2, 14, longSides ? (feminine ? 19 : 15) : 12);
     fill(ctx, shade(hair, 18), -7, headY - 2, 14, 3);
+    if (hairStyle === 'ponytail') {
+      fill(ctx, '#c9606a', -1, headY + 8, 3, 2);
+      fill(ctx, hair, -2, headY + 10, 5, 7);
+      fill(ctx, shade(hair, -18), 1, headY + 11, 2, 6);
+    }
   } else {
+    if (hairStyle === 'ponytail') {
+      // The tail swings out behind the head.
+      const tx = facing === 'left' ? 6 : facing === 'right' ? -9 : 6;
+      fill(ctx, hair, tx, headY, 3, facing === 'down' ? 8 : 11);
+      fill(ctx, shade(hair, -18), tx + 1, headY + 3, 2, facing === 'down' ? 5 : 8);
+      if (facing !== 'down') fill(ctx, '#c9606a', tx, headY, 3, 2);
+    }
     fill(ctx, hair, -8, headY - 3, 15, 6);
     fill(ctx, shade(hair, 16), -8, headY - 3, 15, 2);
     if (hairStyle === 'spiky') {
@@ -375,18 +409,30 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
       fill(ctx, '#f4efdd', -2, headY - 7, 4, 2);
     }
     if (facing === 'down') {
-      const sideLen = hairStyle === 'long' ? 13 : 9;
+      const sideLen = sideHair;
       fill(ctx, hair, -8, headY - 3, 3, sideLen);
       fill(ctx, hair, 4, headY - 3, 3, sideLen);
+      if (feminine && hairStyle !== 'spiky') fill(ctx, hair, -7, headY, 7, 2);
       fill(ctx, '#2b2b26', -4, headY + 5, 2, 2);
       fill(ctx, '#2b2b26', 2, headY + 5, 2, 2);
-      fill(ctx, shade(skin, -30), -1, headY + 8, 3, 1);
+      if (feminine) {
+        // Lashes, blush and lips.
+        fill(ctx, '#2b2b26', -5, headY + 4, 1, 1);
+        fill(ctx, '#2b2b26', 4, headY + 4, 1, 1);
+        fill(ctx, '#e8978a', -6, headY + 7, 2, 1);
+        fill(ctx, '#e8978a', 4, headY + 7, 2, 1);
+        fill(ctx, '#c9606a', -1, headY + 8, 3, 1);
+      } else {
+        fill(ctx, shade(skin, -30), -1, headY + 8, 3, 1);
+      }
     } else if (facing === 'left') {
-      fill(ctx, hair, -8, headY - 3, 4, hairStyle === 'long' ? 13 : 10);
+      fill(ctx, hair, -8, headY - 3, 4, longSides ? sideHair : 10);
       fill(ctx, '#2b2b26', -4, headY + 5, 2, 2);
+      if (feminine) { fill(ctx, '#2b2b26', -5, headY + 4, 1, 1); fill(ctx, '#e8978a', -3, headY + 7, 2, 1); }
     } else {
-      fill(ctx, hair, 3, headY - 3, 4, hairStyle === 'long' ? 13 : 10);
+      fill(ctx, hair, 3, headY - 3, 4, longSides ? sideHair : 10);
       fill(ctx, '#2b2b26', 2, headY + 5, 2, 2);
+      if (feminine) { fill(ctx, '#2b2b26', 4, headY + 4, 1, 1); fill(ctx, '#e8978a', 1, headY + 7, 2, 1); }
     }
   }
 

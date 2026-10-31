@@ -328,3 +328,14 @@ El usuario pidió terminar inmediatamente por falta de uso. No se ha reconstruid
 el instalador: el .exe 0.2.1 entregado antes NO contiene este vestidor. Los cambios
 están en el código y en la versión web local. Los megaprompts anteriores aún no
 incluyen el vestidor.
+
+Entrega del armario 0.2.2 (2026-11-01): rama `build/wardrobe-20261101`, run
+https://github.com/Javpato/HACKATHON/actions/runs/41252135962 (Windows + Linux OK).
+108/108 tests unitarios (incluye sincronización de looks en ambos sentidos), 43 Playwright
++ 6 LIVE pasaron. Instaladores en deliverables/windows-0.2.2/ y deliverables/linux-0.2.2/.
+EXE SHA-256 1d6eac3a9e8cb0d4d355ffa84d6683abb44016c9cad5635c3a6c4d81eacc906e. Sin prueba en Windows.
+
+Avatar femenino 0.2.3 (2026-11-01): campo `body` (masculine|feminine) en appearanceSchema,
+pestaña «Cuerpo» en el armario y selector en ajustes. Cuerpo femenino con cintura,
+pestañas, rubor, labios, flequillo y pelo largo hasta los hombros; nuevos peinados
+Coleta y Moño. Looks antiguos se leen como masculino. Protocolo cambia: todos en 0.2.3.

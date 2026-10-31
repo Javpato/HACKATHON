@@ -17,6 +17,11 @@ describe('wardrobe', () => {
     expect(normalizeAppearance({ accessory: 'glasses' })).toMatchObject({ eyewear: 'square', headwear: 'none' });
     expect(normalizeAppearance({ hairStyle: 'beanie' }).headwear).toBe('beanie');
   });
+  it('defaults old looks to the masculine body and keeps a feminine choice', () => {
+    expect(normalizeAppearance({ outfit: 'suit' }).body).toBe('masculine');
+    expect(normalizeAppearance({ body: 'feminine', hairStyle: 'ponytail' })).toMatchObject({ body: 'feminine', hairStyle: 'ponytail' });
+    expect(normalizeAppearance({ body: 'robot' }).body).toBe('masculine');
+  });
   it('drops invalid garments instead of rejecting the whole look', () => {
     const look = normalizeAppearance({ headwear: 'tophat', eyewear: 'round', outfit: 'suit', jacket: 'coat', jacketColor: 'red' });
     expect(look).toMatchObject({ headwear: 'none', eyewear: 'round', outfit: 'suit', jacket: 'coat' });

@@ -151,9 +151,9 @@ describe('session integration using a FAKE in-memory transport, real WebCrypto (
     const host = await client(network, clock, 'Host'), b = await client(network, clock, 'B');
     await host.instance.openVillage(); await admit(host.instance, b.instance);
     const seen = (viewer: VillageClient, who: LocalIdentity) => viewer.view.members.find(m => m.identity.fingerprint === who.public.fingerprint)?.appearance;
-    await b.instance.updateAppearance(normalizeAppearance({ headwear: 'crown', eyewear: 'sunglasses', outfit: 'suit', jacket: 'coat' }));
+    await b.instance.updateAppearance(normalizeAppearance({ body: 'feminine', hairStyle: 'bun', headwear: 'crown', eyewear: 'sunglasses', outfit: 'suit', jacket: 'coat' }));
     await until(() => seen(host.instance, b.identity)?.headwear === 'crown', 'guest look reaches host');
-    expect(seen(host.instance, b.identity)).toMatchObject({ eyewear: 'sunglasses', outfit: 'suit', jacket: 'coat' });
+    expect(seen(host.instance, b.identity)).toMatchObject({ body: 'feminine', hairStyle: 'bun', eyewear: 'sunglasses', outfit: 'suit', jacket: 'coat' });
     await host.instance.updateAppearance(normalizeAppearance({ headwear: 'beret', jacket: 'blazer' }));
     await until(() => seen(b.instance, host.identity)?.headwear === 'beret', 'host look reaches guest');
     expect(seen(b.instance, b.identity)?.headwear).toBe('crown');

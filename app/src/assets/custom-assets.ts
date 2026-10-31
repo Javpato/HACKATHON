@@ -20,6 +20,8 @@ export const HAIR_STYLE_LABELS: Record<HairStyle, string> = {
   curly: 'Rizado',
   beanie: 'Gorro de lana',
   spiky: 'Despeinado',
+  ponytail: 'Coleta',
+  bun: 'Moño',
 };
 
 export const ACCESSORY_LABELS: Record<AvatarAccessory, string> = {

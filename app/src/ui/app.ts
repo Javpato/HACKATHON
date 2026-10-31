@@ -1,4 +1,5 @@
 import { WardrobePanel } from './wardrobe-ui';
+import { BODY_TYPES, type AvatarAppearance } from '../assets/appearance';
 import { DecorationHistory, placementError } from '../house/decoration';
 import { isInScene } from '../world/location';
 import './style.css';
@@ -484,6 +485,13 @@ class StudyUI {
     hairStyleSelect.addEventListener('change', () => {
       this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), hairStyle: hairStyleSelect.value as HairStyle, useCustomSheet: false }));
     });
+    const bodySelect = select(
+      (Object.keys(BODY_TYPES) as AvatarAppearance['body'][]).map((k) => ({ value: k, label: BODY_TYPES[k] })),
+    );
+    bodySelect.value = currentAvatar.body;
+    bodySelect.addEventListener('change', () => {
+      this.run(() => this.actions.updateAppearance({ ...getAvatarCustomization(), body: bodySelect.value as AvatarAppearance['body'], useCustomSheet: false }));
+    });
     const accessorySelect = select(
       (Object.keys(ACCESSORY_LABELS) as AvatarAccessory[]).map((k) => ({ value: k, label: ACCESSORY_LABELS[k] })),
     );
@@ -505,6 +513,7 @@ class StudyUI {
     const assetGrid = node('div', 'sv-asset-grid');
     append(
       assetGrid,
+      field('Cuerpo', bodySelect),
       field('Peinado', hairStyleSelect),
       field('Accesorio', accessorySelect),
       field('Pelo', hairColorInput),

@@ -1,10 +1,10 @@
-import { HEADWEAR, EYEWEAR, OUTFITS, JACKETS, normalizeAppearance, type AvatarAppearance } from '../assets/appearance';
+import { BODY_TYPES, HEADWEAR, EYEWEAR, OUTFITS, JACKETS, normalizeAppearance, type AvatarAppearance } from '../assets/appearance';
 import { getAvatarCustomization, HAIR_STYLE_LABELS, SKIN_TONES } from '../assets/custom-assets';
 import { getAvatarSheet } from '../assets/avatar-sheet';
 import type { Position, PublicIdentity } from '../protocol/types';
 import { drawAvatar } from './art';
 
-type Category = 'headwear'|'eyewear'|'outfit'|'jacket'|'appearance';
+type Category = 'body'|'headwear'|'eyewear'|'outfit'|'jacket'|'appearance';
 const COLORS=['#d8b04e','#a77b50','#e18b78','#416c46','#416f8c','#3d4053','#f2e7cd','#773f57','#2a292b','#af6049'];
 function node<K extends keyof HTMLElementTagNameMap>(tag:K, cls='', text=''):HTMLElementTagNameMap[K]{const el=document.createElement(tag);el.className=cls;el.textContent=text;return el;}
 function button(text:string,run:()=>void):HTMLButtonElement{const b=node('button','sv-wardrobe-button',text);b.type='button';b.onclick=run;return b;}
@@ -55,9 +55,9 @@ export class WardrobePanel {
   private paint():void{this.draw(this.preview,this.draft,true);}
   private render():void{
     this.paint();this.tabs.replaceChildren();this.catalog.replaceChildren();
-    for(const [key,label] of [['headwear','Sombreros'],['eyewear','Lentes'],['outfit','Ropa'],['jacket','Sacos'],['appearance','Aspecto']] as const){const b=button(label,()=>{this.category=key;this.render();});b.setAttribute('aria-pressed',String(this.category===key));this.tabs.append(b);}
+    for(const [key,label] of [['body','Cuerpo'],['headwear','Sombreros'],['eyewear','Lentes'],['outfit','Ropa'],['jacket','Sacos'],['appearance','Aspecto']] as const){const b=button(label,()=>{this.category=key;this.render();});b.setAttribute('aria-pressed',String(this.category===key));this.tabs.append(b);}
     if(this.category==='appearance'){this.appearanceControls();return;}
-    const category=this.category;const options=category==='headwear'?HEADWEAR:category==='eyewear'?EYEWEAR:category==='outfit'?OUTFITS:JACKETS;
+    const category=this.category;const options=category==='body'?BODY_TYPES:category==='headwear'?HEADWEAR:category==='eyewear'?EYEWEAR:category==='outfit'?OUTFITS:JACKETS;
     const grid=node('div','sv-wardrobe-grid');
     for(const [value,label] of Object.entries(options)){
       const patch={...this.draft,[category]:value,useCustomSheet:false};
