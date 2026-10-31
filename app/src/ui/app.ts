@@ -1,4 +1,5 @@
 import './style.css';
+import { loadAvatarSheet, setAvatarSheet } from '../assets/avatar-sheet';
 import {
   LIMITS, type AppActions, type AppView, type BoardPoint, type BoardStroke,
   type Furniture, type FurnitureKind, type Position, type PublicHouse,
@@ -246,6 +247,9 @@ class StudyUI {
   private richBoardDraft: { kind: 'circle' | 'arrow'; start: BoardPoint; current: BoardPoint } | null = null;
   private richToolButtons = new Map<'circle' | 'arrow', HTMLButtonElement>();
   private currentArea: BuiltinAreaId = 'residential';
+  private settingsDialog!: HTMLDialogElement;
+  private settingsContent!: HTMLElement;
+  private villageName = localStorage.getItem('studyvillage-village-name') || 'La aldea';
   private expansion!: WorldExpansionUIController;
   private editorPane!: HTMLElement;
   private editorArea!: HTMLTextAreaElement;
@@ -367,6 +371,7 @@ class StudyUI {
         this.lastStageRenderSig = '';
       },
     });
+    loadAvatarSheet();
     this.build();
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -401,6 +406,7 @@ class StudyUI {
 
   destroy(): void {
     cancelAnimationFrame(this.raf);
+    this.expansion.environment.dispose();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
@@ -426,7 +432,18 @@ class StudyUI {
     this.statusBadge = node('span', 'sv-status-pill', 'Sin sesión');
     const headerHome = button('Mi casa ↗', 'sv-button sv-button-primary');
     headerHome.addEventListener('click', () => this.enterOwnHouse());
-    append(headerActions, this.statusBadge, headerHome);
+    this.settingsDialog = node('dialog', 'sv-settings-dialog');
+    this.settingsDialog.setAttribute('aria-label', 'Ajustes');
+    const settingsHead = node('div', 'sv-inline');
+    const settingsTitle = node('h2', '', 'Ajustes');
+    const closeSettings = button('Cerrar', 'sv-button');
+    closeSettings.addEventListener('click', () => this.settingsDialog.close());
+    append(settingsHead, settingsTitle, closeSettings);
+    this.settingsContent = node('div', 'sv-stack');
+    append(this.settingsDialog, settingsHead, this.settingsContent);
+    const settingsButton = button('⚙ Ajustes', 'sv-button sv-settings-button');
+    settingsButton.addEventListener('click', () => { this.keys.clear(); this.dpadKeys.clear(); this.moveTarget = null; this.settingsDialog.showModal(); });
+    append(headerActions, this.statusBadge, headerHome, settingsButton);
     append(header, brand, headerActions);
 
     const layout = node('div', 'sv-layout');
@@ -439,7 +456,7 @@ class StudyUI {
     append(layout, sidebar, main, inspector);
     const footer = node('footer', 'sv-footer');
     append(footer, node('span', '', 'HECHO PARA ESTUDIAR Y COMPARTIR'), node('span', '', 'Archivos y proyectos: solo en tu equipo'));
-    append(this.shell, header, layout, footer);
+    append(this.shell, header, layout, footer, this.settingsDialog);
     this.root.replaceChildren(this.shell);
 
     this.lockOverlay = node('div', 'sv-lock-overlay');
@@ -560,15 +577,46 @@ class StudyUI {
     const importPackBtn = button('↑ Importar Pack', 'sv-button sv-button-small');
     importPackBtn.addEventListener('click', () => importPackInput.click());
     append(packRow, exportPackBtn, importPackBtn, importPackInput);
-    append(customizer, summary, assetGrid, packRow);
+    const avatarFile = node('input', 'sv-input');
+    avatarFile.type = 'file';
+    avatarFile.accept = 'image/png';
+    avatarFile.addEventListener('change', () => {
+      const file = avatarFile.files?.[0];
+      if (!file) return;
+      if (file.size > 512 * 1024) { this.notify('El PNG supera 512 KB.'); avatarFile.value = ''; return; }
+      const reader = new FileReader();
+      reader.onload = () => { void setAvatarSheet(String(reader.result)).then(() => {
+        this.lastStageRenderSig = ''; this.notify('Cuadrícula de personaje guardada en este equipo.');
+      }).catch(error => this.notify(error instanceof Error ? error.message : 'No se pudo cargar el PNG.')); };
+      reader.readAsDataURL(file);
+    });
+    const resetAvatar = button('Restablecer personaje', 'sv-button');
+    resetAvatar.addEventListener('click', () => { void setAvatarSheet(null); avatarFile.value = ''; this.lastStageRenderSig = ''; });
+    append(customizer, summary, assetGrid, packRow, field('Cuadrícula PNG del personaje', avatarFile),
+      node('p', 'sv-subtle', '3 columnas de animación y 4 filas: abajo, izquierda, derecha, arriba. Se guarda en este equipo.'), resetAvatar);
 
-    append(profile, eyebrow, profileRow, profileForm, customizer);
+    append(profile, eyebrow, profileRow);
+    const villageNameInput = node('input', 'sv-input');
+    villageNameInput.maxLength = 48;
+    villageNameInput.value = this.villageName;
+    villageNameInput.addEventListener('change', () => {
+      this.villageName = villageNameInput.value.trim().slice(0, 48) || 'La aldea';
+      villageNameInput.value = this.villageName;
+      localStorage.setItem('studyvillage-village-name', this.villageName);
+      this.refresh();
+    });
+    const houseName = node('input', 'sv-input');
+    houseName.maxLength = 32;
+    this.settingsDialog.addEventListener('close', () => this.keys.clear());
+    houseName.addEventListener('change', () => this.patchOwnHouse({ name: houseName.value.trim() || 'Mi casa' }));
+    this.settingsDialog.addEventListener('toggle', () => { houseName.value = this.view?.ownHouse.name || ''; });
+    append(this.settingsContent, node('h3', '', 'Tu espacio'), field('Nombre del vecindario (en este equipo)', villageNameInput), field('Nombre de tu casa', houseName), profileForm, customizer);
 
     const nav = node('nav', 'sv-nav');
     nav.setAttribute('aria-label', 'Secciones');
     const entries: [Pane, string][] = [
       ['world', 'La aldea'], ['house', 'Mi casa'],
-      ['editor', 'Editor local'], ['contacts', 'Contactos'],
+      ['contacts', 'Contactos'],
     ];
     for (const [pane, title] of entries) {
       const item = button('', 'sv-nav-item');
@@ -681,7 +729,7 @@ class StudyUI {
       node('span', 'sv-keycap', 'E / Botón'), node('span', '', 'Interactuar'),
       node('span', 'sv-keycap', '2× Clic / Toque'), node('span', '', 'Usar mueble'));
     append(this.canvasPane, stageWrap, stageHint);
-    this.expansion.mountStageControls(this.canvasPane, this.shell);
+    this.expansion.mountStageControls(this.settingsContent, this.shell);
 
     this.buildBoard();
     this.buildEditor();
@@ -1261,7 +1309,7 @@ class StudyUI {
     append(controls, this.micButton, this.muteButton, this.deafenButton, this.pttButton, this.screenButton, this.stopScreenButton);
     this.mediaTiles = node('div', 'sv-media-tiles');
     append(this.mediaBox, this.mediaAudience, this.mediaStatus, this.mediaError, meterWrap, controls, this.privateBox, this.mediaTiles,
-      node('p', 'sv-tiny', 'La pantalla compartida se abre en el escenario superior en alta definición (1080p) con modo destacado o cuadrícula.'),
+      node('p', 'sv-tiny', 'La pantalla compartida se abre en el escenario superior con calidad de hasta 4K según tu pantalla y conexión con modo destacado o cuadrícula.'),
       node('p', 'sv-tiny', 'Con pulsar para hablar activo, mantén la barra espaciadora.'));
   }
 
@@ -1313,7 +1361,7 @@ class StudyUI {
     const view = this.view!;
     const house = this.currentHouse();
     const titles: Record<Pane, [string, string]> = {
-      world: ['La aldea', 'Seis parcelas, tantas casas como personas presentes. Haz clic en una puerta para visitar.'],
+      world: [this.currentArea === 'residential' ? this.villageName : WORLD_AREAS[this.currentArea].displayName, 'Camina hacia las puertas y los carteles. Pulsa E o el botón de acción para entrar e interactuar.'],
       house: [house?.name || 'La casa', house?.ownerId === view.identity.fingerprint
         ? 'Tu espacio sigue disponible incluso sin conexión.' : 'Un rincón compartido para estudiar en compañía.'],
       board: ['La pizarra', 'Dibuja ideas juntos. Oculta capas solo en tu pantalla.'],
@@ -2526,12 +2574,13 @@ class StudyUI {
     try { navigator.vibrate?.(15); } catch {}
     if (this.pane === 'world') {
       const portal = closestPortal(this.currentArea, this.localPosition);
-      if (portal) {
+      if (portal && closestPortal(this.currentArea, this.localPosition)?.id === portal.id) {
         this.currentArea = portal.toArea;
         this.localPosition = { ...portal.spawnAtTarget };
         this.moveTarget = null;
         this.lastStageRenderSig = '';
         this.expansion.refreshStageControls();
+        this.refreshPane();
         this.notify(`Entrando en ${WORLD_AREAS[portal.toArea].displayName}…`);
         return;
       }
@@ -2752,23 +2801,24 @@ class StudyUI {
 
   private onStagePointerDown = (event: PointerEvent): void => {
     const view = this.view;
-    if (!view) return;
+    if (!view || this.settingsDialog.open) return;
     const point = this.canvasPoint(event, this.stageCanvas);
     const allowTapMove = event.pointerType === 'touch' || this.touchControlsForced === true;
     if (this.pane === 'world') {
       const portal = WORLD_AREAS[this.currentArea].portals.find((p) => pointInRect(point.x, point.y, p.rect));
-      if (portal) {
+      if (portal && closestPortal(this.currentArea, this.localPosition)?.id === portal.id) {
         this.currentArea = portal.toArea;
         this.localPosition = { ...portal.spawnAtTarget };
         this.moveTarget = null;
         this.lastStageRenderSig = '';
         this.expansion.refreshStageControls();
+        this.refreshPane();
         this.notify(`Entrando en ${WORLD_AREAS[portal.toArea].displayName}…`);
         return;
       }
       if (this.currentArea === 'residential') {
         const item = occupiedParcels(view).find((candidate) => pointInRect(point.x, point.y, candidate.parcel));
-        if (item) {
+        if (item && closestDoor(this.localPosition, occupiedParcels(view))?.ownerId === item.ownerId) {
           this.openHouse(item.ownerId);
           return;
         }
@@ -2779,7 +2829,7 @@ class StudyUI {
           point.y,
           view.identity.fingerprint,
         );
-        if (hitObj) {
+        if (hitObj && this.expansion.objectRegistry.closestInteractable(this.currentArea, this.localPosition.x, this.localPosition.y, view.identity.fingerprint)?.id === hitObj.id) {
           this.expansion.interactWithWorldObject(hitObj);
           return;
         }
@@ -2990,7 +3040,7 @@ class StudyUI {
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.view || this.view.lockedIdentity || this.isTypingTarget(event.target)) return;
+    if (!this.view || this.settingsDialog.open || this.view.lockedIdentity || this.isTypingTarget(event.target)) return;
     const key = event.key.toLowerCase();
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright'].includes(key)) {
       this.keys.add(key);

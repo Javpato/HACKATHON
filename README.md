@@ -1,5 +1,7 @@
 # StudyVillage
 
+Cambios recientes y trabajo pendiente de servidor permanente: [punto de continuación](docs/CONTINUATION.md).
+
 Un pequeño vecindario para estudiar juntos: casas propias, avatares, voz, pantalla y pizarra. Los proyectos permanecen en el equipo de su dueño. Interfaz en español, código TypeScript + Canvas, shell Tauri 2.
 
 **Estado: implementación en integración; P0 no certificado.** El empaquetado nativo ya pasa en CI y el `.AppImage` arranca en Linux. Siguen sin evidencia la prueba entre dos equipos, la captura real de micrófono/pantalla y la ejecución en Windows. Consulta [STATUS](docs/STATUS.md) y [TEST_RESULTS](TEST_RESULTS.md). No se ha publicado el proyecto ni decidido una licencia final.
@@ -99,7 +101,7 @@ Los tests de navegador usan Chrome del sistema (`/usr/bin/google-chrome`); se pu
 - Los mensajes tienen versión, esquema, autenticación y límites. La identidad se verifica con firmas ECDSA P-256 y challenge-response. Nombres iguales no conceden permisos.
 - Solo se publican alias, tipos y coordenadas de muebles. Las rutas, archivos, snippets y claves privadas nunca forman parte de snapshots públicos. No existe ejecución remota ni API de acceso remoto al filesystem.
 - SQLite guarda datos propios en el directorio de datos de Tauri; el navegador de desarrollo usa IndexedDB. SQLite no cifra tus snippets/proyectos. Las claves persistidas sí van cifradas de forma opt-in. Los datos remotos se conservan en RAM y se limpian al terminar; no se promete borrado forense del SO.
-- Máximo seis miembros; colas, payloads y pizarra acotados. Voz tiene prioridad sobre la pantalla (presupuesto inicial de pantalla 720p/10 fps). Seis pantallas, voz privada, audio del sistema, webcam, packs, IA y editor colaborativo quedan en backlog.
+- Máximo seis miembros; colas, payloads y pizarra acotados. Voz tiene prioridad sobre la pantalla (captura ideal de hasta 4K/30 fps, limitada por navegador y conexión). Seis pantallas, voz privada, audio del sistema, webcam, packs, IA y editor colaborativo quedan en backlog.
 - Las capturas pueden revelar notificaciones, contraseñas u otros archivos por decisión del usuario. La app no graba medios.
 
 ## Contribuir sin solapamientos

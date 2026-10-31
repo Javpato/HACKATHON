@@ -1322,3 +1322,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   display: block;
 }
 
+
+/* Settings stay outside the world; native dialog handles focus and Escape. */
+.sv-settings-dialog {
+  width: min(680px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  overflow: auto;
+  background: var(--paper, #fffdf4);
+  color: #243d36;
+  border: 2px solid #39614c;
+  border-radius: 12px;
+  padding: 20px;
+}
+.sv-settings-dialog::backdrop { background: #142b23b0; }
+.sv-settings-dialog > .sv-inline { justify-content: space-between; }
+.sv-settings-dialog .sv-env-row { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.sv-settings-dialog input, .sv-settings-dialog select { max-width: 100%; box-sizing: border-box; }
+.sv-settings-dialog .sv-customizer-details { margin-top: 12px; }
+@media (max-width: 740px) {
+  .sv-header-actions .sv-settings-button { display: inline-flex; }
+  .sv-header-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .sv-screen-theater-grid { grid-template-columns: minmax(0, 1fr); }
+  .sv-settings-dialog { padding: 14px; }
+  .sv-settings-dialog .sv-button, .sv-settings-dialog select { min-height: 44px; }
+}

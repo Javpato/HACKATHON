@@ -41,6 +41,16 @@ describe('media lifecycle with explicitly FAKE devices and streams', () => {
     await manager.toggleMicrophone(); expect(requests).toBe(1); expect(manager.view.micEnabled).toBe(true);
     manager.dispose(); expect(microphone.track.stopped).toBe(true);
   });
+  it('requests up to 4K without capping the captured source to 1080p', async () => {
+    let requested: DisplayMediaStreamOptions | undefined;
+    const screen = fakeStream('video');
+    const manager = new MediaManager(() => {}, { getUserMedia: async () => fakeStream('audio').stream, getDisplayMedia: async options => { requested = options; return screen.stream; } });
+    manager.setContext(context());
+    await manager.startScreen();
+    expect(requested?.video).toEqual({ width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30, max: 30 } });
+    manager.dispose();
+    expect(screen.track.stopped).toBe(true);
+  });
   it('applies mute/PTT, sends only to current authenticated peers, and stops before a room transition', async () => {
     const microphone = fakeStream('audio'), screen = fakeStream('video'), transport = fakeEndpoint();
     const manager = new MediaManager(() => {}, { getUserMedia: async () => microphone.stream, getDisplayMedia: async () => screen.stream });

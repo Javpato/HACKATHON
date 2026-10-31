@@ -8,8 +8,7 @@ import { test, expect } from '@playwright/test';
 const SECTIONS: ReadonlyArray<readonly [string, string]> = [
   ['La aldea', 'La aldea'],
   ['Mi casa', 'Mi rincón de estudio'],
-  ['Editor local', 'Tu cuaderno de código'],
-  ['Contactos', 'Personas de confianza'],
+  ['Contactos', 'Contactos'],
 ];
 
 async function openHouseWhiteboard(page: import('@playwright/test').Page, index = 0) {
@@ -54,14 +53,16 @@ test('every local section opens and marks itself as the current page, and left-s
 
 test('a saved display name survives a reload through local persistence', async ({ page }) => {
   await page.goto('/');
-  const name = page.locator('input').first();
+  await page.getByRole('button', { name: '⚙ Ajustes' }).click();
+  const name = page.getByLabel('Nombre visible', { exact: true });
   await expect(name).toHaveValue('Explorador');
   await name.fill('Vecina Ada');
   await page.getByRole('button', { name: 'Guardar perfil' }).click();
-  await expect(page.locator('input').first()).toHaveValue('Vecina Ada');
+  await expect(page.getByLabel('Nombre visible', { exact: true })).toHaveValue('Vecina Ada');
 
   await page.reload();
-  await expect(page.locator('input').first()).toHaveValue('Vecina Ada');
+  await page.getByRole('button', { name: '⚙ Ajustes' }).click();
+  await expect(page.getByLabel('Nombre visible', { exact: true })).toHaveValue('Vecina Ada');
 });
 
 test('drawing on the board marks the canvas and undo reverts exactly that stroke', async ({ page }) => {
@@ -297,21 +298,16 @@ test.describe('Multiplayer pixel-art world expansion', () => {
   test('navigates between Residential, Community Plaza, and Study Library areas and opens minigames & study tools', async ({ page }) => {
     await page.goto('/');
 
-    const expansionBar = page.getByTestId('world-expansion-bar');
-    await expect(expansionBar).toBeVisible();
-
-    // Switch to Community Plaza and Study Library
-    await page.getByTestId('area-btn-community').click();
-    await expect(page.getByTestId('area-btn-community')).toHaveClass(/is-active/);
-
-    await page.getByTestId('area-btn-study').click();
-    await expect(page.getByTestId('area-btn-study')).toHaveClass(/is-active/);
-
-    await page.getByTestId('area-btn-residential').click();
-    await expect(page.getByTestId('area-btn-residential')).toHaveClass(/is-active/);
-
-    // Open Werewolves modal, add bots, and start Night 1
-    await page.getByTestId('open-werewolves-btn').click();
+    await page.locator('.sv-stage-pane canvas').focus();
+    const walkUntil = async (key: string, label: string) => {
+      await page.keyboard.down(key);
+      await expect(page.locator('.sv-touch-btn-label').last()).toContainText(label, { timeout: 10000 });
+      await page.keyboard.up(key);
+    };
+    await walkUntil('d', 'Ir a Plaza Comunitaria');
+    await page.keyboard.press('e');
+    await walkUntil('d', 'Hombres Lobo');
+    await page.keyboard.press('e');
     const modal = page.getByTestId('expansion-modal-overlay');
     await expect(modal).toBeVisible();
     await expect(modal).toContainText('Hombres Lobo');
@@ -321,14 +317,12 @@ test.describe('Multiplayer pixel-art world expansion', () => {
     await page.getByTestId('expansion-modal-close').click();
     await expect(modal).toBeHidden();
 
-    // Open Secure Notes modal
-    await page.getByTestId('open-secure-notes-btn').click();
-    await expect(modal).toBeVisible();
-    await expect(modal).toContainText('Apuntes Seguros');
-    await page.getByTestId('expansion-modal-close').click();
-
-    // Open Flashcards & Local Ollama Study Session modal
-    await page.getByTestId('open-ollama-study-btn').click();
+    await walkUntil('a', 'Volver al Barrio Residencial');
+    await page.keyboard.press('e');
+    await walkUntil('a', 'Ir a Biblioteca de Estudio');
+    await page.keyboard.press('e');
+    await walkUntil('a', 'Flashcards');
+    await page.keyboard.press('e');
     await expect(modal).toBeVisible();
     await expect(modal).toContainText('Mazos de Flashcards, Estudio en Grupo y Ollama');
     // Verify honest Ollama status message ("Ollama was not detected.") and zero fake models
@@ -365,7 +359,8 @@ test.describe('Multiplayer pixel-art world expansion', () => {
     await page.getByTestId('expansion-modal-close').click();
 
     // Verify Collaborative Project workspace inside Editor local
-    await page.locator('.sv-nav').getByRole('button', { name: 'Editor local' }).click();
+    await page.locator('.sv-nav-item', { hasText: 'Mi casa' }).click();
+    await page.locator('.sv-furniture-item', { hasText: 'Escritorio' }).first().dblclick();
     await expect(page.getByTestId('collab-project-workspace')).toBeVisible();
   });
 

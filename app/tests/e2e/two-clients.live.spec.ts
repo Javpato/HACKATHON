@@ -24,8 +24,10 @@ test('two players talk in the village, then privately, then hang up', async ({ b
   const open = async (name: string) => {
     const page = await (await browser.newContext()).newPage();
     await page.goto('/');
-    await page.locator('input').first().fill(name);
+    await page.getByRole('button', { name: '⚙ Ajustes' }).click();
+    await page.getByLabel('Nombre visible', { exact: true }).fill(name);
     await page.getByRole('button', { name: 'Guardar perfil' }).click();
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
     return page;
   };
   const ana = await open('Ana');

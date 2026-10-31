@@ -86,7 +86,6 @@ export class WorldExpansionUIController {
 
   // Stage bar & modals
   private stageToolbar!: HTMLElement;
-  private areaButtons = new Map<BuiltinAreaId, HTMLButtonElement>();
   private todSelect!: HTMLSelectElement;
   private weatherSelect!: HTMLSelectElement;
   private autoCycleCheckbox!: HTMLInputElement;
@@ -164,51 +163,12 @@ export class WorldExpansionUIController {
   }
 
   // ---------------------------------------------------------------------------
-  // 1. Stage Bar: Area Navigation + Environment Controls + Quick Station Bar
+  // 1. Environment settings and station dialogs
   // ---------------------------------------------------------------------------
 
-  mountStageControls(canvasPane: HTMLElement, shell: HTMLElement): void {
+  mountStageControls(settings: HTMLElement, shell: HTMLElement): void {
     this.stageToolbar = el('div', 'sv-world-expansion-bar');
     this.stageToolbar.dataset.testid = 'world-expansion-bar';
-
-    // Row 1: Area Switcher + Quick Stations
-    const areaRow = el('div', 'sv-expansion-row');
-    const areaGroup = el('div', 'sv-segment');
-    const areaEntries: [BuiltinAreaId, string, string][] = [
-      ['residential', '🏡 Barrio Residencial', 'area-btn-residential'],
-      ['community', '🔥 Plaza Comunitaria', 'area-btn-community'],
-      ['study', '📚 Biblioteca y Estudio', 'area-btn-study'],
-    ];
-    for (const [areaId, label, testId] of areaEntries) {
-      const b = btn(label, 'sv-segment-button');
-      b.dataset.testid = testId;
-      b.addEventListener('click', () => {
-        this.callbacks.setCurrentArea(areaId);
-        this.refreshStageControls();
-      });
-      this.areaButtons.set(areaId, b);
-      areaGroup.append(b);
-    }
-
-    const stationQuickGroup = el('div', 'sv-inline');
-    const wolfBtn = btn('🐺 Hombres Lobo', 'sv-button sv-button-small');
-    wolfBtn.dataset.testid = 'open-werewolves-btn';
-    wolfBtn.addEventListener('click', () => this.openModal('werewolves'));
-
-    const garticBtn = btn('🎨 Gartic Phone', 'sv-button sv-button-small');
-    garticBtn.dataset.testid = 'open-gartic-btn';
-    garticBtn.addEventListener('click', () => this.openModal('gartic'));
-
-    const notesBtn = btn('📓 Apuntes Seguros', 'sv-button sv-button-small');
-    notesBtn.dataset.testid = 'open-secure-notes-btn';
-    notesBtn.addEventListener('click', () => this.openModal('notes'));
-
-    const flashcardsBtn = btn('🃏 Flashcards y Ollama IA', 'sv-button sv-button-small sv-button-primary');
-    flashcardsBtn.dataset.testid = 'open-ollama-study-btn';
-    flashcardsBtn.addEventListener('click', () => this.openModal('ollama_study'));
-
-    appendChildren(stationQuickGroup, wolfBtn, garticBtn, notesBtn, flashcardsBtn);
-    appendChildren(areaRow, areaGroup, stationQuickGroup);
 
     // Row 2: Environment Controls (Day/Night + Weather + Audio + Particles)
     const envRow = el('div', 'sv-expansion-row sv-env-row');
@@ -283,6 +243,22 @@ export class WorldExpansionUIController {
       this.callbacks.requestStageRedraw();
     });
 
+    const sound = el('select', 'sv-select');
+    sound.setAttribute('aria-label', 'Sonido de fondo');
+    for (const [value, label] of [['weather', 'Según el clima'], ['rain', 'Lluvia'], ['wind', 'Viento'], ['brown_noise', 'Ruido marrón']]) {
+      const option = el('option', '', label); option.value = value; sound.append(option);
+    }
+    sound.value = this.environment.getState().ambientSound;
+    sound.addEventListener('change', () => this.environment.update({ ambientSound: sound.value as 'weather' | 'rain' | 'wind' | 'brown_noise' }));
+    const volume = el('input', 'sv-input');
+    volume.type = 'range'; volume.min = '0'; volume.max = '1'; volume.step = '0.05';
+    volume.value = String(this.environment.getState().ambientVolume);
+    volume.setAttribute('aria-label', 'Volumen del ambiente');
+    volume.addEventListener('input', () => this.environment.update({ ambientVolume: Number(volume.value) }));
+    const soundLabel = el('label', 'sv-stack', 'Sonido de fondo'); soundLabel.append(sound);
+    const volumeLabel = el('label', 'sv-stack', 'Volumen del ambiente'); volumeLabel.append(volume);
+    envRow.append(el('h3', '', 'Ambiente'), soundLabel, volumeLabel);
+
     appendChildren(
       envRow,
       envLabel,
@@ -293,8 +269,8 @@ export class WorldExpansionUIController {
       this.particleSelect,
     );
 
-    appendChildren(this.stageToolbar, areaRow, envRow);
-    canvasPane.prepend(this.stageToolbar);
+    appendChildren(this.stageToolbar, envRow);
+    settings.append(this.stageToolbar);
 
     // Universal Modal Overlay
     this.modalOverlay = el('div', 'sv-lock-overlay sv-ai-modal-overlay');
@@ -310,10 +286,6 @@ export class WorldExpansionUIController {
   }
 
   refreshStageControls(): void {
-    const current = this.callbacks.getCurrentArea();
-    for (const [areaId, b] of this.areaButtons.entries()) {
-      b.classList.toggle('is-active', areaId === current);
-    }
     const envState = this.environment.getState();
     if (this.todSelect && document.activeElement !== this.todSelect) {
       this.todSelect.value = envState.timeOfDay;

@@ -93,9 +93,9 @@ export class MediaManager {
     try {
       const stream = await devices.getDisplayMedia({
         video: {
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          frameRate: { ideal: 30, max: 30 },
         },
         audio: false,
       });

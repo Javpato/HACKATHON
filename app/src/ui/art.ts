@@ -1,3 +1,4 @@
+import { getAvatarSheet } from '../assets/avatar-sheet';
 import type { Position, PublicIdentity } from '../protocol/types';
 
 /**
@@ -309,6 +310,14 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   // a glance. Presentation only: collision and movement are untouched.
   ctx.scale(1.16, 1.16);
 
+  const avatarSheet = isOwn ? getAvatarSheet() : null;
+  if (avatarSheet) {
+    const row = { down: 0, left: 1, right: 2, up: 3 }[facing];
+    const col = moving ? Math.floor(walk * 2) % 3 : 1;
+    const sw = avatarSheet.naturalWidth / 3;
+    const sh = avatarSheet.naturalHeight / 4;
+    ctx.drawImage(avatarSheet, col * sw, row * sh, sw, sh, -14, -30, 28, 38);
+  } else {
   // Legs swing in opposition; when idle they stand together.
   const swing = moving ? Math.round(stride * 2.4) : 0;
   if (facing === 'left' || facing === 'right') {
@@ -393,6 +402,7 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
     fill(ctx, '#cf6f3c', -7, headY - 4, 14, 1);
   }
 
+  }
   if (isOwn) {
     // A soft arc under the owner instead of a hard selection box.
     ctx.strokeStyle = 'rgba(255,240,200,0.85)';
