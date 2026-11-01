@@ -1,52 +1,52 @@
-# Servidor propio de StudyVillage
+# StudyVillage self-hosted server
 
-Un mundo persistente que instala y gestiona su dueño, en su propio equipo o en un VPS.
-Nosotros entregamos el software; no alojamos ni operamos ningún servidor.
+A persistent world that its owner installs and runs, on their own computer or on a VPS.
+We ship the software; we do not host or operate any server.
 
-- **Node 24**, **WebSocket** y **SQLite** integrado (`node:sqlite`). Sin dependencias en ejecución: un único archivo `server.mjs`.
-- Sin servidor, la aldea entre pares sigue igual: seis personas.
-- Con servidor, el dueño elige de **1 a 24 conexiones simultáneas** (residentes y visitantes cuentan igual).
-- Cada barrio tiene seis parcelas. Se crean los barrios necesarios, hasta **cuatro**: 10 personas → 2 barrios.
-  Bajar la capacidad no borra casas ni barrios ni expulsa a nadie: solo limita las entradas siguientes.
-- Los barrios forman una cadena izquierda/derecha dentro del mismo servidor. Cada uno tiene su Comunidad (norte) y su Biblioteca (sur).
-  Conectar servidores de dueños distintos no forma parte de esta entrega.
+- **Node 24**, **WebSocket** and built-in **SQLite** (`node:sqlite`). No runtime dependencies: a single `server.mjs` file.
+- Without a server, the peer-to-peer village works as before: six people.
+- With a server, the owner chooses **1 to 24 simultaneous connections** (residents and visitors count the same).
+- Each neighbourhood has six plots. As many neighbourhoods as needed are created, up to **four**: 10 people → 2 neighbourhoods.
+  Lowering the capacity does not delete houses or neighbourhoods or kick anyone out: it only limits new entries.
+- Neighbourhoods form a left/right chain within the same server. Each has its own Community (north) and Library (south).
+  Connecting servers run by different owners is not part of this release.
 
-## Qué guarda y qué no
+## What is stored and what is not
 
-| Se guarda en SQLite | Se queda en cada dispositivo | Es transitorio |
+| Stored in SQLite | Stays on each device | Transient |
 |---|---|---|
-| Residentes y parcelas, casas, acceso, muebles, pizarras de casas y de barrio, proyectos de grupo, invitaciones (solo su huella SHA-256) | Claves privadas, notas privadas, archivos y rutas locales, configuración de Ollama | Presencia, posiciones, llamadas, partidas en curso |
+| Residents and plots, houses, access, furniture, house and neighbourhood whiteboards, group projects, invitations (only their SHA-256 fingerprint) | Private keys, private notes, local files and paths, Ollama settings | Presence, positions, calls, games in progress |
 
-Cada cambio se confirma después de escribirse en una transacción. Las peticiones llevan un identificador:
-repetir una petición tras perder la respuesta no aplica el cambio dos veces. Si el disco falla, la app
-recibe un error y conserva el borrador. Tras un reinicio, casas, pizarras y residentes siguen ahí; las
-partidas vuelven a la sala de espera.
+Each change is confirmed only after it has been written in a transaction. Requests carry an identifier:
+repeating a request after losing the response does not apply the change twice. If the disk fails, the app
+receives an error and keeps the draft. After a restart, houses, whiteboards and residents are still there;
+games go back to the lobby.
 
-## Instalación rápida (Node 24)
+## Quick install (Node 24)
 
 ```bash
-git clone <este repositorio> && cd hackathon
+git clone https://github.com/Javpato/HACKATHON.git && cd HACKATHON
 npm ci
-npm run server:build            # crea server/dist/server.mjs
-DATA_DIR=/var/lib/studyvillage WORLD_NAME="Mi aldea" node server/dist/server.mjs
+npm run server:build            # creates server/dist/server.mjs
+DATA_DIR=/var/lib/studyvillage WORLD_NAME="My village" node server/dist/server.mjs
 ```
 
-En el primer arranque aparece un **secreto de instalación de un solo uso** (también en `DATA_DIR/claim-secret.txt`, permisos 600):
+On first start a **one-time claim secret** is printed (also in `DATA_DIR/claim-secret.txt`, permissions 600):
 
 ```
 [studyvillage] No administrator yet. One-time claim secret: …
 ```
 
-Variables de entorno:
+Environment variables:
 
-| Variable | Por defecto | Uso |
+| Variable | Default | Purpose |
 |---|---|---|
-| `PORT` / `HOST` | `8787` / `0.0.0.0` | Dónde escucha |
-| `DATA_DIR` | `./data` | Carpeta de `world.sqlite` (usa un volumen persistente) |
-| `WORLD_NAME` | `StudyVillage` | Nombre que ven los clientes |
-| `ALLOWED_ORIGINS` | `*` | Orígenes web permitidos, separados por comas |
-| `CLAIM_SECRET` | aleatorio | Fija tu propio secreto de instalación |
-| `TLS_CERT` / `TLS_KEY` | — | TLS directo, si no usas proxy |
+| `PORT` / `HOST` | `8787` / `0.0.0.0` | Where it listens |
+| `DATA_DIR` | `./data` | Folder for `world.sqlite` (use a persistent volume) |
+| `WORLD_NAME` | `StudyVillage` | Name shown to clients |
+| `ALLOWED_ORIGINS` | `*` | Allowed web origins, comma-separated |
+| `CLAIM_SECRET` | random | Set your own claim secret |
+| `TLS_CERT` / `TLS_KEY` | — | Direct TLS, if you do not use a proxy |
 
 ## Docker
 
@@ -55,12 +55,12 @@ docker compose -f server/docker-compose.yml up -d --build
 docker compose -f server/docker-compose.yml logs studyvillage | grep "claim secret"
 ```
 
-Los datos viven en el volumen `studyvillage-data`. El puerto solo se publica en `127.0.0.1`:
-pon delante un proxy con HTTPS.
+Data lives in the `studyvillage-data` volume. The port is only published on `127.0.0.1`:
+put an HTTPS proxy in front of it.
 
-## HTTPS obligatorio (wss://)
+## HTTPS required (wss://)
 
-Los navegadores exigen `wss://` fuera de este mismo equipo. Lo más sencillo es Caddy, que obtiene el certificado solo:
+Browsers require `wss://` outside this same machine. The simplest option is Caddy, which obtains the certificate by itself:
 
 ```
 aldea.example.org {
@@ -68,67 +68,62 @@ aldea.example.org {
 }
 ```
 
-(ver `server/Caddyfile.example`). Abre los puertos 80 y 443 del VPS. Con nginx, recuerda
+(see `server/Caddyfile.example`). Open ports 80 and 443 on the VPS. With nginx, remember
 `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`.
 
-## Primera administración y entrada de personas
+## First administration and letting people in
 
-1. En la app: **Ajustes → Identidad**, guarda tu identidad cifrada.
-2. **Ajustes → Servidores**: escribe `https://aldea.example.org`, pulsa **Comprobar**, pega el secreto de instalación y **Conectar**.
-   Tu identidad pasa a ser la administradora; el secreto deja de valer. Conocer la URL no da ningún permiso.
-3. En **Administrar servidor** eliges la capacidad y creas **invitaciones privadas** (nombre, usos, horas).
-   El código solo se muestra una vez; puedes revocarlo cuando quieras.
-4. Quien recibe la invitación entra con ella:
-   - con **identidad guardada** se convierte en residente y recibe parcela; después vuelve sin invitación ni administrador;
-   - con **identidad temporal** entra como visitante, sin parcela.
-5. Cada residente puede pulsar **Importar mi casa y pizarras**: se copia al servidor y los originales siguen en su equipo.
+1. In the app: **Settings → Identity**, save your encrypted identity.
+2. **Settings → Servers**: enter `https://aldea.example.org`, press **Check**, paste the claim secret and **Connect**.
+   Your identity becomes the administrator; the secret stops working. Knowing the URL grants no permission.
+3. In **Manage server** you choose the capacity and create **private invitations** (name, uses, hours).
+   The code is shown only once; you can revoke it at any time.
+4. Whoever receives the invitation joins with it:
+   - with a **saved identity** they become a resident and get a plot; afterwards they come back without an invitation or administrator;
+   - with a **temporary identity** they join as a visitor, without a plot.
+5. Each resident can press **Import my house and whiteboards**: it is copied to the server and the originals stay on their computer.
 
-El administrador puede desconectarse: el mundo sigue abierto, se pueden empezar actividades y las casas siguen disponibles.
+The administrator can disconnect: the world stays open, activities can be started and houses remain available.
 
-## Actividades, voz y Ollama
+## Activities, voice and Ollama
 
-- Hombres lobo, Gartic Phone, concursos y proyectos se ejecutan **en el servidor**: cada persona recibe solo su vista.
-  Organiza la primera persona presente en la actividad; si sale, organiza la siguiente.
-- La voz, la pantalla y las cámaras siguen siendo WebRTC entre las personas de la **misma escena** (zona, casa o llamada privada).
-  El servidor solo reenvía la señalización autenticada; no hay una malla global. Hasta 12 personas a la vez por barrio.
-- Ollama sigue siendo personal. Los bots de Gartic solo funcionan con el Ollama de quien organiza y mientras siga conectado;
-  si se va, los bots se desactivan en lugar de inventar respuestas.
+- Werewolves, Gartic Phone, quizzes and projects run **on the server**: each person receives only their own view.
+  The first person present in the activity organises it; if they leave, the next one does.
+  Each room of a house has its own copy of projects and quizzes, available only to people inside that room.
+- Voice, screen and cameras remain WebRTC between people in the **same scene** (area, house or private call).
+  The server only relays authenticated signalling; there is no global mesh. Up to 12 people at once per neighbourhood.
+- Ollama remains personal. Gartic bots only work with the organiser's Ollama and only while they stay connected;
+  if they leave, the bots are turned off instead of making up answers.
 
-## Copias de seguridad y restauración
+## Backups and restore
 
 ```bash
-# Copia consistente con el servidor en marcha
+# Consistent copy while the server is running
 DATA_DIR=/var/lib/studyvillage node server/dist/server.mjs backup /backups/aldea-$(date +%F).sqlite
 
-# Restaurar (con el servidor PARADO). La base anterior queda como world.sqlite.before-restore
+# Restore (with the server STOPPED). The previous database is kept as world.sqlite.before-restore
 DATA_DIR=/var/lib/studyvillage node server/dist/server.mjs restore /backups/aldea-2026-11-01.sqlite
 ```
 
-En Docker: `docker compose -f server/docker-compose.yml exec studyvillage node server.mjs backup /data/backup.sqlite`.
+In Docker: `docker compose -f server/docker-compose.yml exec studyvillage node server.mjs backup /data/backup.sqlite`.
 
-## Comprobaciones
+## Checks
 
 ```bash
-npm run server:test     # 13 pruebas de integración con sockets e identidades reales
-npm run typecheck       # incluye server/
+npm run server:test     # integration tests with real sockets and identities
+npm run typecheck       # includes server/
 ```
 
-Estado comprobado y pendientes: ver `docs/SERVER.md`.
+Verified status and open items: see `docs/SERVER.md`.
 
+## Automatic friend access
 
-## Acceso automático de amigos / Automatic friend access
+In **Menu → Rooms → Allowed friends**, owners can choose saved contacts separately for the house and for each room. The house list opens the lobby, even when the house is closed. A room list allows entering that room and passing through its lobby and floor; other rooms remain private. Each list holds up to 24 identities.
 
-En **Menú → Habitaciones → Amigos autorizados**, el propietario puede elegir contactos para la casa y para cada habitación. La lista de la casa abre el vestíbulo, incluso con la casa cerrada. La de una habitación permite entrar a esa habitación y pasar por el vestíbulo y su planta; las demás habitaciones siguen siendo privadas. Cada lista admite hasta 24 identidades.
+Connect to the server with a saved identity and wait for **“Saved on the server”** when you change a list. That save publishes the structure and permissions without importing your whiteboards or personal files. Permissions are stored in SQLite and work while the owner is offline, including after a server restart. The server must stay on and friends must be able to connect with their usual identity and invitation/residency. Removing a friend from the list revokes that automatic access.
 
-Conecta al servidor con una identidad guardada y espera **«Guardado en el servidor»** al modificar una lista. Ese guardado publica la estructura y los permisos sin importar tus pizarras o archivos personales. Los permisos quedan en SQLite y funcionan aunque el propietario esté desconectado, también después de reiniciar el servidor. El servidor debe permanecer encendido y los amigos deben poder conectarse a él con su identidad habitual e invitación/residencia. Quitar a un amigo de la lista revoca ese acceso automático.
+This update uses protocol **3**. Update the clients and rebuild/restart the server together; existing data is preserved.
 
-In **Menu → Rooms → Allowed friends**, owners can choose saved contacts separately for the house lobby and each room. A room invitation includes passage through its lobby and floor, while other rooms remain private. A house invitation opens only the lobby, including when the house is closed. Connect with a saved identity and wait for **“Saved on the server”**. Policies persist in SQLite across restarts and work while the owner is offline, provided the server is running and friends can connect with their usual identities and server invitation/residency. Removing a friend revokes that automatic access.
+### Mobile update
 
-Esta actualización usa el protocolo **3**. Actualiza los clientes y recompila/reinicia el servidor juntos; los datos existentes se conservan. / This update uses protocol **3**. Update the clients and rebuild/restart the server together; existing data is preserved.
-
-
-### Actualización móvil / Mobile update
-
-Las posiciones de las puertas de plantas y habitaciones se guardan ahora en la casa firmada. Esta versión usa el protocolo **4**: recompila y reinicia el servidor junto con la app. La cuadrícula y los diseños vertical/horizontal de los controles, así como los apodos de los contactos, se guardan solo en cada dispositivo.
-
-Floor and room door positions now persist in the signed house document. This version uses protocol **4**: rebuild/restart the server together with the app. HUD grids/orientation layouts and contact nicknames are local device preferences.
+Floor and room door positions now persist in the signed house document. This version uses protocol **4**: rebuild/restart the server together with the app. HUD grids, portrait/landscape control layouts and contact nicknames are local device preferences.
