@@ -294,6 +294,8 @@ describe('session integration using a FAKE in-memory transport, real WebCrypto (
     // A asks B. Until B agrees nothing changes for anyone's audio.
     a.instance.requestPrivate(b.identity.public.fingerprint);
     await until(() => b.instance.view.privateCall.incoming.includes(a.identity.public.fingerprint), 'B sees the request');
+    // A's own view updates on its next refresh, which can land just after B's.
+    await until(() => a.instance.view.privateCall.with === b.identity.public.fingerprint, 'A sees its own request');
     expect(a.instance.view.privateCall).toMatchObject({ with: b.identity.public.fingerprint, active: false });
     expect(audience(a)).toMatch(/^La aldea · 2/);
 
