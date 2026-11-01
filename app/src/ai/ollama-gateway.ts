@@ -5,7 +5,7 @@ import { sanitizeBoardAiText } from './study-ai';
  * Part 10 — Optional Local Ollama Integration, Flashcard Deck Engine &
  * Multiplayer Study Sessions
  *
- * Implements the Host-Side AI Gateway documented in `/OLLAMA_INTEGRATION_DESIGN.md`.
+ * Implements the Host-Side AI Gateway described in `docs/STUDY.md`.
  *
  * Key Guarantees:
  * - Zero unsolicited network calls on startup: `http://127.0.0.1:11434` is ONLY

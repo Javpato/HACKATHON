@@ -3411,7 +3411,7 @@ class StudyUI {
       const anyMoving = people.some((p) => p.position.moving) || !!this.moveTarget
         || envState.cycleMode === 'auto' || envState.weather !== 'clear';
       const stageSig = calm && !anyMoving
-        ? JSON.stringify([this.pane, this.currentArea, envState.timeOfDay, envState.weather, this.selectedFurnitureId, activeHouse, inlineSpriteGeneration(), occupied.map((o) => [o.ownerId, o.house.revision]), people, getAvatarCustomization()])
+        ? JSON.stringify([getLanguage(), this.pane, this.currentArea, envState.timeOfDay, envState.weather, this.selectedFurnitureId, activeHouse, inlineSpriteGeneration(), occupied.map((o) => [o.ownerId, o.house.revision]), people, getAvatarCustomization()])
         : '';
       if (!calm || anyMoving || stageSig !== this.lastStageRenderSig) {
         this.lastStageRenderSig = stageSig;

@@ -1,134 +1,112 @@
 # StudyVillage
 
-Cambios recientes: [punto de continuación](docs/CONTINUATION.md). Interacción, idioma, pizarra y **servidor propio**: [docs/SERVER.md](docs/SERVER.md) y la guía del dueño en [server/README.md](server/README.md).
+Un pequeño vecindario pixel-art para estudiar juntos: cada persona tiene su casa con plantas y habitaciones, y comparte voz, pantalla, pizarras, proyectos y tarjetas de repaso con sus amigos. Interfaz en **español e inglés**.
 
-Un pequeño vecindario para estudiar juntos: casas propias, avatares, voz, pantalla y pizarra. Los proyectos permanecen en el equipo de su dueño. Interfaz en español e inglés (Ajustes → Perfil → Idioma), código TypeScript + Canvas, shell Tauri 2. Opcionalmente, un servidor propio (Node 24 + SQLite) mantiene el mundo con hasta 24 personas.
+**Versión actual: 0.3.3** · Android, Windows, Linux y navegador.
 
-**Estado: implementación en integración; P0 no certificado.** El empaquetado nativo ya pasa en CI y el `.AppImage` arranca en Linux. Siguen sin evidencia la prueba entre dos equipos, la captura real de micrófono/pantalla y la ejecución en Windows. Consulta [STATUS](docs/STATUS.md) y [TEST_RESULTS](TEST_RESULTS.md). No se ha publicado el proyecto ni decidido una licencia final.
+## Descargar e instalar
 
-## Ejecutar la versión de desarrollo
+Todos los instaladores están en **[Releases → v0.3.3](https://github.com/Javpato/HACKATHON/releases/tag/v0.3.3)**. No necesitas Node, Rust ni clonar el proyecto.
 
-Requiere Node 24 (probado 24.16.0) y npm.
+> Para jugar juntos, **todos deben usar la misma versión** (0.3.3).
 
-```bash
-npm ci
-npm run dev
-```
+### Android — `StudyVillage-0.3.3.apk`
 
-También existe `npm run demo`, que levanta Vite y abre el navegador. El recorrido guiado de lo que ya funciona está en [DEMO](docs/DEMO.md).
+1. Descarga el `.apk` en el teléfono (o pásalo por WhatsApp, Telegram, Drive o cable).
+2. Ábrelo. Android avisará de «origen desconocido»: toca **Ajustes** y activa **Permitir de esta fuente** para la app con la que lo abriste.
+3. Toca **Instalar**. Si Play Protect avisa, toca **Instalar de todos modos** (la app no viene de Play Store).
+4. Si ya tenías una 0.3.x, se instala encima y conserva tus datos.
 
-Abre `http://127.0.0.1:3000`. El servidor Vite es solo una herramienta local de desarrollo; la app empaquetada carga los recursos incluidos y no necesita Node ni un servidor de aplicación.
+En vertical el teléfono funciona como una consola: la pantalla arriba sigue a tu personaje (zoom con **− / +**) y los controles van abajo. Puedes mover y redimensionar los controles en **Menú → Ajustes → Controles** (un diseño para vertical y otro para horizontal). En Android no se puede compartir pantalla; voz y cámara sí.
 
-Para el primer gate de medios, abre `http://127.0.0.1:3000/?diagnostic=1`. Permite comprobar APIs, solicitar micrófono/pantalla, detener pistas, exportar resultados y ejecutar un loopback de medios sintéticos. La prueba sintética no valida una captura real ni otro equipo.
+### Windows — `StudyVillage_0.3.3_x64-setup.exe`
 
-## Uso
+1. Descarga y ejecuta el instalador.
+2. El instalador no está firmado: si aparece SmartScreen, pulsa **Más información → Ejecutar de todas formas**.
+3. Si el equipo no tiene WebView2, el instalador lo descarga.
+4. Abre **StudyVillage** desde el menú Inicio.
 
-1. Elige nombre y color. Tu identidad criptográfica es independiente del nombre.
-2. Todo se abre desde el botón **Menú** (tecla M): tu casa, la aldea, voz, proyectos, estudio, decorar, contactos y ajustes. Exporta/importa contactos para reconocer huellas; el código amigo no es un servicio de presencia.
-3. «Abrir vecindario» conecta con la señalización gratuita. Copia la invitación y compártela fuera de la app. La persona invitada solicita acceso; el coordinador acepta o rechaza.
-4. Hay seis parcelas fijas: coordinador en 0 y siguientes en el primer hueco libre. Cada persona conserva su propia casa. La Comunidad está al norte y la Biblioteca al sur. Camina con WASD o flechas; **doble clic o doble toque** abre al instante casas, muebles, estaciones y portales, también desde lejos. Un clic simple no hace nada en ordenador; con los controles táctiles activados, un toque te acerca andando sin abrir nada. E sigue funcionando de cerca.
-5. Dentro de una casa, activa micrófono o comparte pantalla con un gesto explícito. Comprueba el indicador de quién te escucha. Detén la captura antes de mostrar contenido privado.
-6. Pizarra por autor, ocultación local de capas, deshacer lo propio y exportar PNG. En la plaza: Hombres Lobo y Gartic Phone, que el anfitrión arbitra para toda la aldea (Hombres Lobo permite bots; Gartic solo con un Ollama local verificado). El código se escribe en VS Code: «Proyectos» guarda el repositorio, la sesión Live Share activa, quién trabaja y las tareas del grupo.
-7. «Salir» siempre permite abandonar. Una caída inesperada del coordinador ofrece 60 segundos desde su detección; después se cierra la sesión, sin migración de host.
+### Linux — `.AppImage` o `.deb`
 
-La identidad es temporal en RAM por defecto. Para reconocer el mismo contacto tras reiniciar, guárdala **cifrada con una contraseña** y desbloquéala en la siguiente apertura. No hay recuperación de contraseña ni integración de keyring del SO en esta entrega. La casa y los apuntes pueden persistir aunque uses una identidad temporal.
+- **AppImage** (cualquier distribución):
+  ```bash
+  chmod +x StudyVillage_0.3.3_amd64.AppImage
+  ./StudyVillage_0.3.3_amd64.AppImage
+  ```
+- **Debian / Ubuntu / Mint**:
+  ```bash
+  sudo apt install ./StudyVillage_0.3.3_amd64.deb
+  ```
+  Después ábrelo desde el menú de aplicaciones (**StudyVillage**).
 
-## Estudio actualizado en la versión web
+Para compartir pantalla en Wayland hacen falta PipeWire y `xdg-desktop-portal` para tu escritorio.
 
-**Menú → Estudio** reúne Cuadernos, Flashcards y Quiz en una portada ilustrada. Los quizzes tienen biblioteca propia y permiten práctica individual o concurso en la aldea. El mueble **Configurar Ollama** guía la conexión personal y activa cada función verificada. Las funciones de IA permanecen ocultas sin esa configuración. [Guía de uso y migración](docs/STUDY.md).
+### En el navegador
 
-La pizarra queda fija en pantalla y Ajustes se organiza por secciones. Estos cambios corresponden al código web; no se han reconstruido los instaladores anteriores.
+Con el proyecto clonado (ver [Desarrollo](#desarrollo)), `npm run dev` y abre `http://localhost:3000`. Para probar desde un teléfono en la misma red usa HTTPS: `SV_HTTPS=1 npm run dev` y abre `https://<ip-del-equipo>:3000` (el navegador solo permite el cifrado de la app en `localhost` o con HTTPS).
 
-## Novedades de 0.2.1
+## Cómo se juega
 
-Cámara opcional en Hombres Lobo y Gartic: tarjetas cuadradas redondeadas, vista propia en espejo y captura ideal Full HD a 30 fps. El vídeo solo se ofrece a quienes abren el mismo juego en la misma escena; se apaga al cerrar/cambiar de juego o salir de la sesión. Micrófono independiente.
+1. Elige nombre y color. Todo se abre desde el botón **Menú** (tecla M).
+2. **Abrir la aldea:** Menú → Aldea → «Abrir mi aldea». Copia la invitación y mándala a tus amigos; ellos la pegan en «Pega una invitación» → **Unirme** y tú los aceptas.
+3. Camina con WASD/flechas, la cruceta táctil o tocando el suelo. **Doble clic o doble toque** (o **E** de cerca) abre casas, muebles, estaciones y portales.
+4. La aldea tiene seis parcelas; la **Comunidad** está al norte y la **Biblioteca** al sur.
+5. **Tu casa:** decórala (catálogo, girar, cuadrícula, mover puertas), añade **plantas y habitaciones** y decide quién entra. Cada habitación tiene sus propios proyectos, tarjetas, quizzes, notas y pizarras.
+6. **Muebles:** escritorio → Proyectos (repositorio, Live Share de VS Code y tareas); librería y «Tarjetas de repaso» → Estudio (cuadernos, flashcards y quizzes); pizarra → pizarra colaborativa; mesa → voz; armario → ropa del personaje.
+7. **En la plaza:** Hombres Lobo y Gartic Phone, con cámara opcional.
+8. **Contactos:** añade a la gente de tu sesión, ponles apodo y comparte tu tarjeta (en Android, por WhatsApp).
+9. Voz, pantalla y cámara siempre se activan con un gesto tuyo y se ve quién te escucha.
 
-## Novedades de 0.2.0
+Los avisos aparecen de uno en uno (solo el último) y se cierran con **×**.
 
-Tema de madera y papel en apuntes, pizarra y proyectos. Shift para correr; decoración explícita con catálogo, giro, cuadrícula y deshacer. Hombres Lobo incluye cartas configurables y sets guardados. El anfitrión puede terminar cualquier partida. Tarjetas ofrece creación manual, repaso y concursos compartidos; la IA queda en opciones avanzadas. Las bibliotecas nuevas empiezan vacías.
+## Servidor propio (opcional)
 
-## Linux / Tauri
+Por defecto la aldea es P2P: el anfitrión coordina y nada se guarda en un servidor central. Si quieres que el mundo siga abierto aunque nadie esté conectado, hay un servidor propio (Node 24 + SQLite, hasta 24 personas): ver **[server/README.md](server/README.md)** y [docs/SERVER.md](docs/SERVER.md). Se conecta desde Menú → Ajustes → Servidores.
 
-Desarrollo primario Linux. En Ubuntu/Mint instala los [prerrequisitos oficiales de Tauri](https://v2.tauri.app/start/prerequisites/) y Rust con rustup:
+## Desarrollo
 
-```bash
-sudo apt-get update
-sudo apt-get install libwebkit2gtk-4.1-dev build-essential curl file \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
-  pkg-config libdbus-1-dev
-```
-
-Para Wayland, verifica PipeWire y el backend de `xdg-desktop-portal` de tu escritorio. Su instalación no garantiza que WebKitGTK implemente la captura requerida.
-
-```bash
-npm run desktop:dev
-npm run desktop:build
-```
-
-Los paquetes se generan en `app/src-tauri/target/release/bundle/`. La configuración incluye deb y AppImage. **Este entorno no los genera:** faltan las bibliotecas de desarrollo y el intento observado falla en `glib-sys` por ausencia de `glib-2.0.pc`. En cambio el workflow de GitHub sí los produce, porque el runner instala esas bibliotecas. El `.AppImage` descargado de CI se ha ejecutado en este equipo y abre una ventana WebKitGTK real con la interfaz completa.
-
-Se instaló una toolchain aislada en `/tmp/studyvillage-cargo` y `/tmp/studyvillage-rustup` para probar SQLite. No se modificaron los perfiles de shell. Es temporal; para reutilizarla mientras exista:
-
-```bash
-CARGO_HOME=/tmp/studyvillage-cargo RUSTUP_HOME=/tmp/studyvillage-rustup \
-  PATH=/tmp/studyvillage-cargo/bin:$PATH \
-  cargo test --locked --manifest-path app/src-tauri/Cargo.toml --no-default-features --lib
-```
-
-La matriz manual está en [MEDIA_TEST_PROTOCOL.md](docs/MEDIA_TEST_PROTOCOL.md). Si Tauri falla capturando en el entorno real y Electron funciona con evidencia, se puede cambiar el shell sin reemplazar el dominio/Canvas.
-
-## Windows
-
-En Windows se necesitan MSVC Build Tools, Rust y WebView2, según los prerrequisitos de Tauri. Ejecuta:
-
-```powershell
-npm ci
-npm run desktop:build -- --config src-tauri/tauri.windows.conf.json
-```
-
-Se configura un instalador NSIS `.exe`. [.github/workflows/desktop.yml](.github/workflows/desktop.yml) compila Linux y Windows en runners de cada plataforma y conserva artifacts; no publica releases.
-
-La versión actual es **0.2.1**. El workflow genera `StudyVillage_0.2.1_x64-setup.exe` (NSIS) en Windows y `.deb` + `.AppImage` en Linux. Descargar el instalador sin clonar nada:
-
-```bash
-gh run list --workflow "Desktop build only (no publication)"
-gh run download <run-id> -n StudyVillage-Windows-BUILD-ONLY -D ./descargas
-```
-
-Esto es `WINDOWS_BUILD_ONLY`: el `.exe` existe y es un PE32 NSIS válido, pero **nadie lo ha instalado ni ejecutado en Windows**. Va sin firmar, así que SmartScreen avisará.
-
-## Comprobar
-
-```bash
-npm run typecheck
-npm test
-npm run build
-npm run test:e2e
-cargo test --locked --manifest-path app/src-tauri/Cargo.toml --no-default-features --lib
-```
-
-Los tests de navegador usan Chrome del sistema (`/usr/bin/google-chrome`); se puede definir `CHROME_PATH`. En CI se instala Chromium de Playwright. Los tests de transporte simulado o del navegador en una máquina no sustituyen dos portátiles.
-
-## Privacidad y límites
-
-- PeerJS gratuito ayuda a descubrir endpoints; STUN ayuda a negociar ICE. El proveedor ve metadatos de señalización y los peers pueden conocer sus IP. No hay almacenamiento central de casas ni proyectos. Algunas redes impiden P2P; se informa el fallo y se puede reintentar. No se incluye TURN.
-- Los mensajes tienen versión, esquema, autenticación y límites. La identidad se verifica con firmas ECDSA P-256 y challenge-response. Nombres iguales no conceden permisos.
-- Solo se publican alias, tipos y coordenadas de muebles. Las rutas, archivos, snippets y claves privadas nunca forman parte de snapshots públicos. No existe ejecución remota ni API de acceso remoto al filesystem.
-- SQLite guarda datos propios en el directorio de datos de Tauri; el navegador de desarrollo usa IndexedDB. SQLite no cifra tus snippets/proyectos. Las claves persistidas sí van cifradas de forma opt-in. Los datos remotos se conservan en RAM y se limpian al terminar; no se promete borrado forense del SO.
-- Máximo seis miembros; colas, payloads y pizarra acotados. Voz tiene prioridad sobre la pantalla (captura ideal de hasta 4K/30 fps, limitada por navegador y conexión). Seis pantallas, audio del sistema, webcam y packs quedan en backlog. No hay editor de código en la app: la edición conjunta se hace con VS Code Live Share.
-- Las capturas pueden revelar notificaciones, contraseñas u otros archivos por decisión del usuario. La app no graba medios.
-
-## Contribuir sin solapamientos
-
-Los contratos están en [CONTRACTS.md](docs/CONTRACTS.md). El integrador controla tipos, bootstrap, dependencias y configuración. Usar una rama/worktree por agente y propiedad exclusiva de módulos; integrar solo tras tests. No pegar secretos, invitaciones o rutas en logs ni PR.
-
-Git local inicializado y publicado en el repositorio **privado** `Javpato/HACKATHON`. Para continuar en otro equipo:
+Requiere **Node 24** y npm.
 
 ```bash
 git clone https://github.com/Javpato/HACKATHON.git
-cd HACKATHON && npm ci && npm run demo
+cd HACKATHON
+npm ci
+npm run dev          # http://localhost:3000
 ```
 
-El repositorio es privado: hace falta acceso con la cuenta propietaria o como colaborador. Los workflows de `.github/workflows/` compilan en CI sin publicar releases.
+| Comando | Qué hace |
+|---|---|
+| `npm run check` | typecheck, tests unitarios (app y servidor), catálogo de idiomas, build web y servidor |
+| `npm run test:e2e` | tests de navegador (Playwright; usa Chrome del sistema o `CHROME_PATH`) |
+| `npm run desktop:build` | instaladores Tauri de Linux (deb + AppImage) |
+| `npm run server:build` / `server:start` | compila y arranca el servidor propio |
+| `CLAUDE_BIN=~/.local/bin/claude npm run i18n:update` | traduce los textos nuevos al inglés |
 
-No ejecutar publicación pública sin decisión humana. Código y assets tienen decisiones de licencia separadas pendientes; [ASSETS_LICENSES.md](ASSETS_LICENSES.md) registra la procedencia. Las referencias oficiales de [Tauri](https://v2.tauri.app/), [PeerJS](https://peerjs.com/client/getting-started) y [rusqlite](https://docs.rs/rusqlite/) documentan APIs, no validan nuestro hardware.
+Textos nuevos de la interfaz: envuélvelos en `msg('…')` o `t('…')` y ejecuta `i18n:update`; el test de idioma falla si falta alguno.
+
+**Android:** `npm run build && npx cap sync android && android/gradlew -p android assembleDebug` (necesita JDK 21 y el SDK de Android). El APK queda en `android/app/build/outputs/apk/debug/`.
+
+**Windows y Linux:** el workflow [desktop.yml](.github/workflows/desktop.yml) compila el instalador de Windows y los paquetes de Linux en cada cambio en `main`; [check.yml](.github/workflows/check.yml) ejecuta todas las pruebas.
+
+### Estructura
+
+| Carpeta | Contenido |
+|---|---|
+| `app/src` | juego (TypeScript + Canvas): `ui/`, `world/`, `house/`, `minigames/`, `study/`, `media/`, `i18n/` |
+| `app/tests` | tests unitarios (Vitest) y de navegador (`e2e/`, Playwright) |
+| `app/src-tauri` | shell de escritorio (Tauri 2, Rust) |
+| `android` | app Android (Capacitor) |
+| `server` | servidor propio opcional (Node 24 + SQLite, Docker) |
+| `scripts` | herramientas de traducción y HTTPS local |
+| `docs` | [servidor](docs/SERVER.md), [estudio](docs/STUDY.md), [contratos](docs/CONTRACTS.md), [decisiones](docs/DECISIONS.md), [diseño visual](docs/VISUAL_DESIGN.md) |
+
+## Privacidad
+
+- La identidad es un par de claves (ECDSA P-256); los nombres no dan permisos. Puedes guardarla cifrada con contraseña.
+- Las casas, notas y proyectos se quedan en tu equipo. Solo se publican nombres, tipos y posiciones de muebles.
+- En modo P2P se usa la señalización gratuita de PeerJS y STUN: el proveedor ve metadatos y los participantes pueden conocer sus IP. Algunas redes impiden P2P y no se incluye TURN.
+- La app no graba voz, pantalla ni cámara.
+
+## Licencia
+
+Pendiente de decidir. La procedencia de los recursos gráficos está en [ASSETS_LICENSES.md](ASSETS_LICENSES.md).

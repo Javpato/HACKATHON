@@ -1,2 +1,0 @@
-1d6eac3a9e8cb0d4d355ffa84d6683abb44016c9cad5635c3a6c4d81eacc906e  StudyVillage_0.2.2_x64-setup.exe
-0f2bc11e32ee543bdd904a9230375076b87b9a153aa4fab5c743fe705a3a55e2  StudyVillage-Windows-0.2.2.zip
