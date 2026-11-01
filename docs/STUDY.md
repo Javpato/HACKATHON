@@ -1,63 +1,66 @@
-# Estudio y Ollama personal
+# Study and personal Ollama
 
-Desde **Menú → Estudio**, la estantería o las estaciones de estudio se abre una
-portada a pantalla completa con tres tarjetas ilustradas:
+From **Menu → Study**, the bookshelf, the «Review cards» furniture or the study stations, a
+full-screen cover opens with three illustrated cards:
 
-- **Cuadernos**: abre tus cuadernos. La portada discontinua con un + crea otro.
-  Dentro se conservan las páginas y el editor de bloques, Markdown y fórmulas.
-- **Flashcards**: elige Repasar o Crear. Cada tarjeta tiene pregunta y respuesta;
-  pistas, etiquetas y dificultad son opcionales. El progreso se guarda localmente.
-- **Quiz**: elige Jugar o Crear. Añade preguntas con 2–4 respuestas distintas y
-  marca una correcta. Puedes practicar solo, sin conexión, o abrir un concurso.
+- **Notebooks**: opens your notebooks. The dashed cover with a + creates another one.
+  Inside, pages and the block, Markdown and formula editor are kept.
+- **Flashcards**: choose Review or Create. Each card has a question and an answer;
+  hints, tags and difficulty are optional. Progress is saved locally.
+- **Quiz**: choose Play or Create. Add questions with 2–4 different answers and
+  mark one as correct. You can practise alone, offline, or open a contest.
 
-En un concurso de aldea, el anfitrión selecciona un quiz e inicia la partida cuando
-hay al menos otra persona. El anfitrión también responde. Los invitados pueden
-unirse aunque su biblioteca esté vacía. Las soluciones no aparecen hasta que todos
-hayan respondido o termine el tiempo; la puntuación la calcula el anfitrión.
-El tiempo es configurable. El anfitrión puede terminar el concurso para todos.
+Inside a room of a house, Study opens that room's own notebooks, flashcards and quizzes;
+the village and the lobby share the general ones.
 
-Las antiguas tarjetas con «Usar en concursos» se conservan como flashcards y sus
-preguntas se copian una sola vez a la biblioteca de quizzes. Borrar un quiz migrado
-no hace que vuelva a aparecer. La migración solo se registra tras guardar.
+In a village contest, the host selects a quiz and starts the game when
+there is at least one other person. The host also answers. Guests can
+join even if their library is empty. Solutions do not appear until everyone
+has answered or time runs out; the host calculates the score.
+The time limit is configurable. The host can end the contest for everyone.
 
-## Configurar Ollama
+Old cards marked «Use in contests» are kept as flashcards and their
+questions are copied once into the quiz library. Deleting a migrated quiz
+does not make it come back. The migration is only recorded after saving.
 
-En la Biblioteca, camina hasta el mueble **Configurar Ollama**. La guía permite:
+## Setting up Ollama
 
-1. Abrir las instrucciones oficiales de instalación para tu sistema.
-2. Comprobar Ollama en el propio equipo, en `127.0.0.1:11434`.
-3. Elegir uno de los modelos locales realmente instalados.
-4. Probar y activar cada función, o usar Configurar todo.
+In the Library, walk to the **Set up Ollama** furniture. The guide lets you:
 
-Hay un modelo común y excepciones para flashcards, quizzes, asistente de pizarra,
-conversión visual a LaTeX, sprites y bots de Gartic. Las funciones visuales requieren
-un modelo con visión; las pruebas comprueban que el modelo devuelve resultados
-válidos para la función concreta. Si falla una función, las demás pueden seguir activas.
+1. Open the official installation instructions for your system.
+2. Check Ollama on your own computer, at `127.0.0.1:11434`.
+3. Choose one of the local models that are actually installed.
+4. Test and turn on each feature, or use Set up everything.
 
-Cada persona configura su propia IA, también si es invitada. Los bots de Gartic se
-ejecutan en el equipo anfitrión. La configuración de Ollama no se publica en la aldea.
-No se instala software, descarga modelos ni ejecuta comandos desde la app.
+There is a shared model plus exceptions for flashcards, quizzes, the whiteboard assistant,
+visual conversion to LaTeX, sprites and Gartic bots. Visual features require
+a vision model; the tests check that the model returns valid results
+for that specific feature. If one feature fails, the others can stay on.
 
-Sin configuración verificada, los accesos de IA no aparecen en el estudio, la
-pizarra ni Gartic. La guía del mueble sigue disponible. Después de configurar,
-la app vuelve a comprobar los modelos al abrirse. Un modelo cambiado o eliminado
-requiere otra prueba. La generación muestra un borrador para revisar antes de
-incorporarlo a un mazo o quiz. Ya no se usan Gemini ni respuestas prefabricadas.
+Each person sets up their own AI, guests included. Gartic bots
+run on the host's computer. Ollama settings are not published to the village.
+The app does not install software, download models or run commands.
 
-Si hay un bloqueo de navegador, la guía muestra el origen concreto a autorizar en
-`OLLAMA_ORIGINS` y enlaza las instrucciones oficiales. No es necesario exponer
-Ollama a otros equipos. Documentación: https://docs.ollama.com/faq
+Without a verified setup, the AI shortcuts do not appear in Study, the
+whiteboard or Gartic. The furniture's guide is still available. After setup,
+the app checks the models again each time it opens. A changed or removed model
+needs another test. Generation shows a draft to review before
+adding it to a deck or quiz. Gemini and canned answers are no longer used.
 
-## Pizarra y ajustes
+If the browser blocks the connection, the guide shows the exact origin to allow in
+`OLLAMA_ORIGINS` and links to the official instructions. There is no need to expose
+Ollama to other computers. Documentation: https://docs.ollama.com/faq
 
-La pizarra ocupa el espacio disponible sin desplazar la página. Usa Mano para
-recorrer el lienzo, la rueda para desplazar y Ctrl + rueda para zoom. Las opciones
-avanzadas se superponen al lienzo y tienen su propio desplazamiento cuando hace falta.
-Las fórmulas manuales siempre están disponibles; la IA depende de su configuración.
+## Whiteboard and settings
 
-Ajustes separa Perfil, Ambiente, Controles e Identidad. Ambiente incluye tarjetas
-para luz y clima, sonido independiente, volumen y opciones de partículas. Todos
-los espacios con desplazamiento comparten una scrollbar de madera y papel.
+The whiteboard fills the available space without scrolling the page. Use Hand to
+move around the canvas, the wheel to scroll and Ctrl + wheel to zoom. Advanced
+options overlay the canvas and scroll on their own when needed.
+Manual formulas are always available; AI depends on its setup.
 
-Los fallos se presentan en español, con indicaciones junto a los campos o avisos
-accesibles. No se muestran JSON de validación, trazas ni mensajes internos.
+Settings is split into Profile, Ambience, Controls and Identity. Ambience includes cards
+for light and weather, separate sound, volume and particle options. All
+scrolling areas share a wood-and-paper scrollbar.
+
+Errors are shown in the chosen language, with hints next to the fields or accessible
+notices. Validation JSON, stack traces and internal messages are never shown.
