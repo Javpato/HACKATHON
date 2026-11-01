@@ -1,5 +1,5 @@
 import { STREET_LIGHTS, drawStreetLight } from './lights';
-import { t, defaultText } from '../i18n';
+import { t, defaultText, getLanguage } from '../i18n';
 import type { AvatarCustomization } from '../assets/custom-assets';
 import { type PublicIdentity, type Position } from '../protocol/types';
 import {
@@ -170,7 +170,8 @@ function paintEmptyPlot(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
 }
 
 function terrain(occupied: readonly OccupiedParcel[]): HTMLCanvasElement | null {
-  const key = occupied.map((item) => item.parcel.slot).sort().join(',');
+  // The plot signs are painted into this cache, so a language change must repaint it.
+  const key = `${getLanguage()}|${occupied.map((item) => item.parcel.slot).sort().join(',')}`;
   if (terrainCache && terrainKey === key) return terrainCache;
   let canvas: HTMLCanvasElement;
   try {
