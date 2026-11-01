@@ -1,14 +1,8 @@
 import type { FurnitureKind } from '../protocol/types';
 
-export type HairStyle = 'short' | 'long' | 'curly' | 'beanie' | 'spiky';
-export type AvatarAccessory = 'none' | 'glasses' | 'headphones' | 'hat';
-
-export interface AvatarCustomization {
-  hairStyle: HairStyle;
-  hairColor: string;
-  skinTone: string;
-  accessory: AvatarAccessory;
-}
+import { DEFAULT_APPEARANCE, normalizeAppearance, type AvatarAppearance, type HairStyle, type AvatarAccessory } from './appearance';
+export type { HairStyle, AvatarAccessory } from './appearance';
+export type AvatarCustomization = AvatarAppearance;
 
 export interface AssetPackManifest {
   schemaVersion: 1;
@@ -26,6 +20,8 @@ export const HAIR_STYLE_LABELS: Record<HairStyle, string> = {
   curly: 'Rizado',
   beanie: 'Gorro de lana',
   spiky: 'Despeinado',
+  ponytail: 'Coleta',
+  bun: 'Moño',
 };
 
 export const ACCESSORY_LABELS: Record<AvatarAccessory, string> = {
@@ -40,12 +36,7 @@ export const HAIR_COLORS = ['#2a2018', '#5a4530', '#a84a32', '#d9a441', '#3b6e8c
 
 const STORAGE_KEY = 'studyvillage-custom-assets-v1';
 
-const DEFAULT_AVATAR: AvatarCustomization = {
-  hairStyle: 'short',
-  hairColor: '#3f3124',
-  skinTone: '#f0c69a',
-  accessory: 'none',
-};
+const DEFAULT_AVATAR: AvatarCustomization = { ...DEFAULT_APPEARANCE };
 
 let currentPack: AssetPackManifest = {
   schemaVersion: 1,
@@ -111,16 +102,16 @@ export function saveCustomAssets(pack: AssetPackManifest): AssetPackManifest {
 }
 
 export function getAvatarCustomization(): AvatarCustomization {
-  return {
-    hairStyle: currentPack.avatar?.hairStyle ?? DEFAULT_AVATAR.hairStyle,
-    hairColor: isHexColor(currentPack.avatar?.hairColor) ? currentPack.avatar!.hairColor! : DEFAULT_AVATAR.hairColor,
-    skinTone: isHexColor(currentPack.avatar?.skinTone) ? currentPack.avatar!.skinTone! : DEFAULT_AVATAR.skinTone,
-    accessory: currentPack.avatar?.accessory ?? DEFAULT_AVATAR.accessory,
-  };
+  return normalizeAppearance(currentPack.avatar);
 }
 
 export function updateAvatarCustomization(patch: Partial<AvatarCustomization>): AvatarCustomization {
-  const next: AvatarCustomization = { ...getAvatarCustomization(), ...patch };
+  const merged = { ...getAvatarCustomization(), ...patch };
+  if (patch.accessory !== undefined) {
+    if (patch.headwear === undefined) merged.headwear = patch.accessory === 'hat' ? 'explorer' : 'none';
+    if (patch.eyewear === undefined) merged.eyewear = patch.accessory === 'glasses' ? 'square' : 'none';
+  }
+  const next = normalizeAppearance(merged);
   saveCustomAssets({ ...currentPack, avatar: next });
   return next;
 }
@@ -184,17 +175,9 @@ export function validateAssetPack(raw: unknown): AssetPackManifest {
   const author = typeof obj.author === 'string' && obj.author.trim() ? obj.author.trim().slice(0, 48) : 'Comunidad';
   const license = typeof obj.license === 'string' && obj.license.trim() ? obj.license.trim().slice(0, 32) : 'CC-BY-4.0';
 
-  const validHair: HairStyle[] = ['short', 'long', 'curly', 'beanie', 'spiky'];
-  const validAcc: AvatarAccessory[] = ['none', 'glasses', 'headphones', 'hat'];
-  const rawAvatar = (obj.avatar && typeof obj.avatar === 'object' ? obj.avatar : {}) as Record<string, unknown>;
-  const avatar: AvatarCustomization = {
-    hairStyle: validHair.includes(rawAvatar.hairStyle as HairStyle) ? (rawAvatar.hairStyle as HairStyle) : DEFAULT_AVATAR.hairStyle,
-    hairColor: isHexColor(rawAvatar.hairColor) ? rawAvatar.hairColor : DEFAULT_AVATAR.hairColor,
-    skinTone: isHexColor(rawAvatar.skinTone) ? rawAvatar.skinTone : DEFAULT_AVATAR.skinTone,
-    accessory: validAcc.includes(rawAvatar.accessory as AvatarAccessory) ? (rawAvatar.accessory as AvatarAccessory) : DEFAULT_AVATAR.accessory,
-  };
+  const avatar = normalizeAppearance(obj.avatar);
 
-  const validKinds: FurnitureKind[] = ['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet'];
+  const validKinds: FurnitureKind[] = ['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet', 'flashcards'];
   const furnitureColors: Partial<Record<FurnitureKind, string>> = {};
   if (obj.furnitureColors && typeof obj.furnitureColors === 'object') {
     for (const kind of validKinds) {

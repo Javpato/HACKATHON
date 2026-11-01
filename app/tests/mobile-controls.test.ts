@@ -80,12 +80,12 @@ describe('Mobile Controller Logic & D-pad Direction Calculations', () => {
     // When standing near the desk
     const nearDesk = closestFurniture({ x: 210, y: 160, direction: 'down', moving: false }, house);
     expect(nearDesk?.kind).toBe('desk');
-    expect(FURNITURE_PROMPT_LABELS['desk']).toContain('Cuaderno');
+    expect(FURNITURE_PROMPT_LABELS['desk']).toContain('Proyectos');
 
     // When standing near the bookshelf
     const nearBookshelf = closestFurniture({ x: 545, y: 150, direction: 'down', moving: false }, house);
     expect(nearBookshelf?.kind).toBe('bookshelf');
-    expect(FURNITURE_PROMPT_LABELS['bookshelf']).toContain('Lectura');
+    expect(FURNITURE_PROMPT_LABELS['bookshelf']).toContain('Tarjetas');
 
     // When standing right at the house exit door
     expect(atHouseDoor({ x: 384, y: 395, direction: 'down', moving: false })).toBe(true);

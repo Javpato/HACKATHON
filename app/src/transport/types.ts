@@ -25,7 +25,7 @@ export interface MediaCall {
   close(): void;
   onStream(callback: (stream: MediaStream) => void): () => void;
   onClose(callback: () => void): () => void;
-  limitBitrate(kind: 'audio' | 'screen'): void;
+  limitBitrate(kind: 'audio' | 'screen' | 'camera'): void;
 }
 export interface TransportEndpoint {
   readonly id: string;

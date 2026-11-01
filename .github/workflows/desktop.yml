@@ -31,6 +31,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Resolve Rust dependency lockfile
+        run: cargo generate-lockfile --manifest-path app/src-tauri/Cargo.toml
       - name: Native SQLite tests
         run: cargo test --locked --manifest-path app/src-tauri/Cargo.toml --no-default-features --lib
       - name: Build Linux bundles

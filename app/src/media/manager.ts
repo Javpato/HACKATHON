@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { MediaView, RemoteMedia, ScreenPhase } from '../protocol/types';
 import { mediaMetadataSchema, type MediaMetadata } from '../protocol/schema';
 import type { MediaCall, TransportEndpoint } from '../transport/types';
@@ -26,29 +27,25 @@ export class MediaManager {
   private error: string | null = null;
   private consentGeneration = 0;
   private screenGeneration = 0;
+  private captureUnsupported = false;
   private microphonePending = false;
   constructor(private changed: () => void, private devices?: MediaDevicesAdapter, private received?: (identityId: string, kind: 'audio' | 'screen') => void) {}
   get view(): MediaView {
     const remote: RemoteMedia[] = [];
     for (const item of this.incoming.values()) if (item.stream) remote.push({ identityId: item.identityId, kind: item.kind, stream: item.stream });
     return {
+      screenAvailable: !this.captureUnsupported && typeof this.currentDevices()?.getDisplayMedia === 'function' && (typeof isSecureContext === 'undefined' || isSecureContext),
       micEnabled: !!this.microphone, muted: this.muted, deafened: this.deafened, pushToTalk: this.pushToTalk,
       talking: !!this.microphone && !this.muted && (!this.pushToTalk || this.talking), screenPhase: this.phase,
-      localScreen: this.screen, remote, audience: this.context ? `${this.context.roomName} · ${this.context.peers.length} persona(s) pueden oírte` : 'Nadie: conéctate a una aldea para hablar', error: this.error,
+      localScreen: this.screen, remote, audience: this.context ? t('{room} · {count} persona(s) pueden oírte', { room: this.context.roomName, count: this.context.peers.length }) : t('Nadie: conéctate a una aldea para hablar'), error: this.error,
     };
   }
   attach(endpoint: TransportEndpoint): void { this.endpoint = endpoint; }
   setContext(context: MediaContext | null): void {
     const previous = this.context;
     const changedRoom = previous?.sessionId !== context?.sessionId || previous?.epoch !== context?.epoch || previous?.room !== context?.room;
-    // Moving rooms normally revokes capture, so your mic never follows you
-    // into an audience you did not choose. A private call is the exception:
-    // its audience is one person you picked who also accepted, so capture
-    // carries over. Leaving the call widens the audience and revokes it again.
-    const intoPrivate = changedRoom && !!previous && !!context && previous.sessionId === context.sessionId
-      && previous.epoch === context.epoch && context.room.startsWith('pair:');
-    if (intoPrivate) this.closeAllCalls();
-    else if (changedRoom) this.stopAll();
+    // A selected channel is stable across movement. Switching audiences revokes capture.
+    if (changedRoom) this.stopAll();
     this.context = context;
     for (const [key, item] of this.incoming) {
       if (!context?.peers.some(peer => peer.identityId === item.identityId && peer.endpoint === item.call.endpoint)) this.closeCall(this.incoming, key);
@@ -91,11 +88,12 @@ export class MediaManager {
     const generation = ++this.screenGeneration;
     this.phase = 'REQUESTING_OS_PERMISSION'; this.error = null; this.changed();
     try {
+      const mobile = typeof navigator !== 'undefined' && (/Android|iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent));
       const stream = await devices.getDisplayMedia({
         video: {
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: mobile ? 1280 : 3840 },
+          height: { ideal: mobile ? 720 : 2160 },
+          frameRate: { ideal: mobile ? 15 : 30, max: mobile ? 15 : 30 },
         },
         audio: false,
       });
@@ -111,8 +109,12 @@ export class MediaManager {
         if (this.screen === stream) { this.stopScreen(); this.phase = 'SOURCE_ENDED'; this.changed(); }
       }, { once: true });
       this.reconcile();
-    } catch {
-      if (consent === this.consentGeneration && generation === this.screenGeneration) { this.phase = 'DENIED'; this.error = 'La captura fue cancelada o el sistema no concedió el permiso.'; }
+    } catch (error) {
+      if (consent === this.consentGeneration && generation === this.screenGeneration) {
+        const unsupported = error instanceof Error && error.name === 'NotSupportedError';
+        this.captureUnsupported = unsupported; this.phase = unsupported ? 'NOT_SUPPORTED' : 'DENIED';
+        this.error = unsupported ? 'La captura de pantalla no está disponible en este entorno.' : 'La captura fue cancelada o el sistema no concedió el permiso.';
+      }
     } finally { this.changed(); }
   }
   stopScreen(): void {
@@ -141,7 +143,7 @@ export class MediaManager {
     const peer = context.peers.find(peer => peer.endpoint === call.endpoint && peer.identityId === metadata.identityId);
     if (!peer || metadata.token !== peer.receiveToken || metadata.sessionId !== context.sessionId || metadata.epoch !== context.epoch || metadata.room !== context.room) { call.close(); return; }
     const key = `${metadata.identityId}/${metadata.kind}`;
-    if (this.incoming.has(key) || this.incoming.size >= 10) { call.close(); return; }
+    if (this.incoming.has(key) || this.incoming.size >= 46) { call.close(); return; }
     const item: ActiveCall = { call, identityId: metadata.identityId, kind: metadata.kind, unsubscribe: [] };
     this.incoming.set(key, item);
     item.unsubscribe.push(call.onClose(() => { this.closeCall(this.incoming, key); this.changed(); }));
@@ -165,7 +167,7 @@ export class MediaManager {
     for (const peer of context.peers) {
       for (const [kind, stream] of [['audio', this.microphone], ['screen', this.screen]] as const) {
         const key = `${peer.identityId}/${kind}`;
-        if (!stream || this.outgoing.has(key) || this.outgoing.size >= 10) continue;
+        if (!stream || this.outgoing.has(key) || this.outgoing.size >= 46) continue;
         const metadata: MediaMetadata = { v: 2, kind, sessionId: context.sessionId, epoch: context.epoch, room: context.room, identityId: context.identityId, token: peer.sendToken };
         try {
           const call = this.endpoint.call(peer.endpoint, stream, metadata);

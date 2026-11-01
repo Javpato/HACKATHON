@@ -1,0 +1,56 @@
+StudyVillage 0.3.2 — Android
+
+Instalar
+1. Pasa StudyVillage-0.3.2-rooms-notices-update.apk (la más reciente) al teléfono (WhatsApp, Telegram, Drive o cable).
+2. Ábrelo. Android avisará de «origen desconocido»: toca Ajustes y activa
+   «Permitir de esta fuente» para la app con la que lo abriste (WhatsApp, Archivos…).
+3. Toca Instalar. Si Play Protect avisa, toca «Instalar de todos modos»
+   (la app no viene de Play Store, por eso avisa).
+
+Unirte a la aldea de un amigo
+1. Abre StudyVillage, elige tu nombre y color.
+2. Menú (botón de abajo) → Aldea.
+3. Pega la invitación que te mandó tu amigo en «Pega una invitación» y toca Unirme.
+4. Tu amigo tiene que aceptarte. Necesitáis internet los dos.
+
+Importante: todos deben usar la misma versión (0.3.2). La 0.2.3 no sirve con esta.
+
+Novedades de 0.3.2: inglés (Menú → Ajustes → Perfil → Idioma), doble toque para abrir,
+pizarra con selección y formato de texto, cruceta táctil sin pulsaciones dobles,
+y conexión opcional a un servidor propio (Ajustes → Servidores).
+En Android no se puede compartir pantalla; voz y cámara sí (pide permiso la primera vez).
+
+Novedades de 0.3.2:
+- En tu propia casa puedes mover, editar y borrar los trazos de cualquiera en tus pizarras,
+  o vaciar la capa de una persona (Pizarra → Más → Capas → Borrar capa). Se puede deshacer.
+- Gartic Phone ya se puede jugar con 2 personas.
+
+Actualización móvil (StudyVillage-0.3.2-mobile-update.apk) — instálala encima de la anterior,
+no hace falta desinstalar (misma firma):
+- Al tocar ya no se marca en azul como si seleccionaras texto.
+- Editor de controles con cuadrícula y diseño separado para vertical y horizontal.
+- En vertical el teléfono funciona como una Game Boy: pantalla arriba, controles abajo.
+- En Gartic el botón de unirse a la voz es pequeño.
+- Puedes añadir como contacto a la gente de tu sesión y ponerle un apodo.
+- En decoración puedes arrastrar las puertas del vestíbulo y de los pisos.
+- La notificación de solicitud a una habitación privada ya desaparece al resolverse.
+- Botón para mandar tu tarjeta de contacto (JSON) por WhatsApp.
+- La pizarra tiene su propio botón «← Volver» en el teléfono.
+
+Actualización vertical (StudyVillage-0.3.2-portrait-update.apk) — también se instala encima:
+- En vertical la pantalla es mucho más grande y sigue a tu personaje.
+- Botones − / + en la esquina de la pantalla para el zoom (se recuerda).
+- Mismos colores oscuros que en horizontal.
+- El botón «Usar» ya no se mueve ni crece al tocarlo.
+- Controles más pequeños en vertical. Si ya habías guardado tu propio diseño,
+  ve a Menú → Ajustes → Controles → editar → «Restablecer controles» para ver los nuevos.
+
+Actualización habitaciones y avisos (StudyVillage-0.3.2-rooms-notices-update.apk) — se instala encima:
+- Los avisos ya no se acumulan: solo se ve el último y todos se pueden cerrar con ×
+  (también «Llaman a la puerta»). Se quitan solos a los pocos segundos.
+- Los muebles de cada habitación funcionan como en el vestíbulo (proyectos, estudio, pizarra),
+  pero cada habitación tiene sus propios proyectos, tarjetas, quizzes, notas y pizarras.
+- Nuevo mueble «Tarjetas de repaso» para poner en la casa y en las habitaciones.
+- En el teléfono ya se pueden colocar muebles en las habitaciones.
+- Las notas, materiales y proyectos que guardaste con el panel antiguo de una habitación
+  ya no aparecen en ella: los muebles abren ahora las aplicaciones completas.

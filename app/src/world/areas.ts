@@ -1,3 +1,6 @@
+import { INTERACTION_REACH } from './interactions';
+import { STREET_LIGHTS, lampSource, drawStreetLight } from './lights';
+import { t } from '../i18n';
 import { LIMITS, type Position } from '../protocol/types';
 import {
   PALETTE, animClock, contactShadow, drawAvatar, drawTree, fill,
@@ -13,7 +16,7 @@ import type { Rect } from './model';
  * Defines the neighborhood's interconnected spatial areas:
  * 1. `residential` — Barrio Residencial (6 deterministic player house parcels + portals)
  * 2. `community`   — Plaza Comunitaria (shared social hub with Werewolves campfire,
- *                    Gartic Phone drawing table, Arcade machine, Community Whiteboard,
+ *                    Gartic Phone drawing table, Community Whiteboard,
  *                    Collaborative Project workstation, and portal to Study Library)
  * 3. `study`       — Biblioteca y Taller de Estudio (dedicated creative & study zone
  *                    with Shared Flashcard Podium, Secure Notes Desk, Study Whiteboard,
@@ -40,7 +43,7 @@ export interface WorldAreaDefinition {
   bounds: Rect;
   defaultSpawn: Position;
   portals: readonly AreaPortal[];
-  lampPositions: readonly { x: number; y: number }[];
+  lampPositions: readonly { x: number; y: number; groundY?: number }[];
   isInterior: boolean;
 }
 
@@ -50,65 +53,30 @@ export const WORLD_AREAS: Record<BuiltinAreaId, WorldAreaDefinition> = {
     displayName: 'La aldea',
     subtitle: 'Seis parcelas residenciales conectadas con la Plaza Comunitaria y la Biblioteca.',
     bounds: { x: 0, y: 0, w: LIMITS.worldWidth, h: LIMITS.worldHeight },
-    defaultSpawn: { x: 384, y: 215, direction: 'down', moving: false },
+    defaultSpawn: { x: 240, y: 215, direction: 'down', moving: false },
     portals: [
-      {
-        id: 'portal:res-to-community',
-        fromArea: 'residential',
-        toArea: 'community',
-        label: 'Plaza Comunitaria →',
-        prompt: 'E · Ir a Plaza Comunitaria',
-        rect: { x: 716, y: 192, w: 50, h: 52 },
-        spawnAtTarget: { x: 72, y: 220, direction: 'right', moving: false },
-      },
-      {
-        id: 'portal:res-to-study',
-        fromArea: 'residential',
-        toArea: 'study',
-        label: '← Biblioteca y Estudio',
-        prompt: 'E · Ir a Biblioteca de Estudio',
-        rect: { x: 2, y: 192, w: 50, h: 52 },
-        spawnAtTarget: { x: 696, y: 224, direction: 'left', moving: false },
-      },
+      { id: 'portal:res-to-community', fromArea: 'residential', toArea: 'community',
+        label: '↑ Comunidad', prompt: 'E · Ir a Plaza Comunitaria',
+        rect: { x: 214, y: 28, w: 52, h: 44 }, spawnAtTarget: { x: 384, y: 352, direction: 'up', moving: false } },
+      { id: 'portal:res-to-study', fromArea: 'residential', toArea: 'study',
+        label: '↓ Biblioteca', prompt: 'E · Ir a Biblioteca de Estudio',
+        rect: { x: 214, y: 370, w: 52, h: 44 }, spawnAtTarget: { x: 384, y: 128, direction: 'down', moving: false } },
     ],
-    lampPositions: [
-      { x: 238, y: 188 },
-      { x: 530, y: 188 },
-    ],
+    lampPositions: STREET_LIGHTS.residential.map(lampSource),
     isInterior: false,
   },
   community: {
     id: 'community',
     displayName: 'Plaza Comunitaria',
-    subtitle: 'Centro social del vecindario: Lobos, Gartic Phone, Pizarra común, Arcade y Proyectos.',
+    subtitle: 'Centro social del vecindario: Hombres Lobo, Gartic Phone, pizarra común y proyectos.',
     bounds: { x: 0, y: 0, w: LIMITS.worldWidth, h: LIMITS.worldHeight },
-    defaultSpawn: { x: 384, y: 230, direction: 'down', moving: false },
+    defaultSpawn: { x: 384, y: 270, direction: 'down', moving: false },
     portals: [
-      {
-        id: 'portal:community-to-res',
-        fromArea: 'community',
-        toArea: 'residential',
-        label: '← Barrio Residencial',
-        prompt: 'E · Volver al Barrio Residencial',
-        rect: { x: 4, y: 192, w: 54, h: 54 },
-        spawnAtTarget: { x: 690, y: 215, direction: 'left', moving: false },
-      },
-      {
-        id: 'portal:community-to-study',
-        fromArea: 'community',
-        toArea: 'study',
-        label: 'Biblioteca de Estudio →',
-        prompt: 'E · Entrar a la Biblioteca de Estudio',
-        rect: { x: 710, y: 192, w: 54, h: 54 },
-        spawnAtTarget: { x: 74, y: 224, direction: 'right', moving: false },
-      },
+      { id: 'portal:community-to-res', fromArea: 'community', toArea: 'residential',
+        label: '↓ Mi barrio', prompt: 'E · Volver al Barrio Residencial',
+        rect: { x: 358, y: 372, w: 52, h: 44 }, spawnAtTarget: { x: 240, y: 88, direction: 'down', moving: false } },
     ],
-    lampPositions: [
-      { x: 190, y: 150 },
-      { x: 578, y: 150 },
-      { x: 190, y: 310 },
-      { x: 578, y: 310 },
-    ],
+    lampPositions: STREET_LIGHTS.community.map(lampSource),
     isInterior: false,
   },
   study: {
@@ -118,30 +86,11 @@ export const WORLD_AREAS: Record<BuiltinAreaId, WorldAreaDefinition> = {
     bounds: { x: 28, y: 68, w: 712, h: 338 },
     defaultSpawn: { x: 384, y: 330, direction: 'up', moving: false },
     portals: [
-      {
-        id: 'portal:study-to-community',
-        fromArea: 'study',
-        toArea: 'community',
-        label: '← Plaza Comunitaria',
-        prompt: 'E · Salir a Plaza Comunitaria',
-        rect: { x: 32, y: 196, w: 52, h: 54 },
-        spawnAtTarget: { x: 680, y: 220, direction: 'left', moving: false },
-      },
-      {
-        id: 'portal:study-to-res',
-        fromArea: 'study',
-        toArea: 'residential',
-        label: 'Barrio Residencial →',
-        prompt: 'E · Ir al Barrio Residencial',
-        rect: { x: 684, y: 196, w: 52, h: 54 },
-        spawnAtTarget: { x: 76, y: 215, direction: 'right', moving: false },
-      },
+      { id: 'portal:study-to-res', fromArea: 'study', toArea: 'residential',
+        label: '↑ Mi barrio', prompt: 'E · Ir al Barrio Residencial',
+        rect: { x: 358, y: 70, w: 52, h: 40 }, spawnAtTarget: { x: 240, y: 350, direction: 'up', moving: false } },
     ],
-    lampPositions: [
-      { x: 160, y: 140 },
-      { x: 384, y: 210 },
-      { x: 608, y: 140 },
-    ],
+    lampPositions: STREET_LIGHTS.study.map(lampSource),
     isInterior: true,
   },
 };
@@ -156,7 +105,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     kind: 'campfire_werewolves',
     defaultLabel: 'Hoguera de los Lobos',
     displayName: 'Hoguera · Hombres Lobo',
-    description: 'Mesa circular junto al fuego para jugar Hombres Lobo / Loup-Garou (3 a 6 jugadores).',
+    description: 'Mesa junto al fuego para jugar Hombres Lobo (4 a 8 jugadores, con bots si faltan).',
     promptKey: 'E · Jugar Hombres Lobo',
     x: 342,
     y: 176,
@@ -164,7 +113,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 68,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 48,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -179,7 +128,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     id: 'community:drawing-table-gartic',
     areaId: 'community',
     kind: 'drawing_table_gartic',
-    defaultLabel: 'Mesa de Dibujo Gartic',
+    defaultLabel: 'Mesa de dibujo',
     displayName: 'Mesa · Gartic Phone',
     description: 'Mesa creativa de dibujo y teléfono descompuesto para toda la aldea.',
     promptKey: 'E · Jugar Gartic Phone',
@@ -189,7 +138,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 54,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 44,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -214,7 +163,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 38,
     layer: 'wall',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -227,45 +176,20 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     revision: 1,
   },
   {
-    id: 'community:arcade-station',
-    areaId: 'community',
-    kind: 'arcade_machine',
-    defaultLabel: 'Recreativa Arcade',
-    displayName: 'Arcade de la Aldea',
-    description: 'Máquina recreativa extensible para minijuegos rápidos y retos de estudio.',
-    promptKey: 'E · Abrir Arcade',
-    x: 566,
-    y: 78,
-    w: 52,
-    h: 62,
-    layer: 'object',
-    hasCollision: true,
-    interactionRadius: 44,
-    ownerId: null,
-    visibility: 'everyone',
-    usePermission: 'public',
-    editPermission: 'host_only',
-    allowedUsers: [],
-    customSpriteDataUrl: null,
-    customColor: null,
-    state: { mode: 'trivia' },
-    revision: 1,
-  },
-  {
     id: 'community:project-station',
     areaId: 'community',
     kind: 'computer_project',
     defaultLabel: 'Terminal de Proyectos',
     displayName: 'Estación de Proyectos',
-    description: 'Espacio de código colaborativo multi-archivo con ejecución autorizada por el anfitrión.',
-    promptKey: 'E · Proyectos Colaborativos',
+    description: 'Proyectos del grupo: abre el repositorio o únete a la sesión Live Share en VS Code.',
+    promptKey: 'E · Proyectos en VS Code',
     x: 132,
     y: 304,
     w: 78,
     h: 48,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 44,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -291,7 +215,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 48,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 44,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -320,7 +244,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 34,
     layer: 'wall',
     hasCollision: false,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -346,7 +270,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 34,
     layer: 'wall',
     hasCollision: false,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -372,7 +296,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 58,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -398,7 +322,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 58,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 48,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -413,17 +337,17 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     id: 'study:ollama-console',
     areaId: 'study',
     kind: 'ai_tutor_console',
-    defaultLabel: 'Consola IA Local (Ollama)',
-    displayName: 'Tutor IA Local · Ollama',
-    description: 'Puerta de enlace opcional a Ollama en el anfitrión para generar flashcards, quizzes y resúmenes.',
-    promptKey: 'E · Consola IA / Ollama',
+    defaultLabel: 'Configurar Ollama',
+    displayName: 'Configurar Ollama',
+    description: 'Instala, conecta y comprueba tu Ollama personal. Activa un modelo común o configura cada función por separado.',
+    promptKey: 'E · Configurar Ollama',
     x: 590,
     y: 92,
     w: 76,
     h: 54,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -438,17 +362,17 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     id: 'study:project-workbench',
     areaId: 'study',
     kind: 'computer_project',
-    defaultLabel: 'Laboratorio de Código',
+    defaultLabel: 'Taller de proyectos',
     displayName: 'Taller de Proyectos',
-    description: 'Entorno tipo VS Code para editar proyectos multi-archivo y solicitar ejecución al anfitrión.',
-    promptKey: 'E · Taller de Proyectos',
+    description: 'Proyectos del grupo: abre el repositorio o únete a la sesión Live Share en VS Code.',
+    promptKey: 'E · Proyectos en VS Code',
     x: 136,
     y: 298,
     w: 84,
     h: 50,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -474,7 +398,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 50,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -487,7 +411,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
   },
 ];
 
-export function closestPortal(areaId: BuiltinAreaId, pos: Position, maxDistance = 36): AreaPortal | null {
+export function closestPortal(areaId: BuiltinAreaId, pos: Position, maxDistance = INTERACTION_REACH): AreaPortal | null {
   const area = WORLD_AREAS[areaId];
   if (!area) return null;
   let best: AreaPortal | null = null;
@@ -532,7 +456,8 @@ export function drawPortalSign(ctx: CanvasRenderingContext2D, portal: AreaPortal
 
   // Wooden signpost
   fill(ctx, earth0, cx - 3, y - 10, 6, 20);
-  const labelW = Math.max(88, Math.min(148, portal.label.length * 5.6 + 16));
+  const portalLabel = t(portal.label);
+  const labelW = Math.max(88, Math.min(148, portalLabel.length * 5.6 + 16));
   const lx = Math.max(6, Math.min(W - labelW - 6, cx - labelW / 2));
   plate(
     ctx,
@@ -543,7 +468,7 @@ export function drawPortalSign(ctx: CanvasRenderingContext2D, portal: AreaPortal
     nearby ? ember4 : PALETTE.paper[3],
     nearby ? ember0 : earth0,
   );
-  text(ctx, portal.label, lx + labelW / 2, y - 12, PALETTE.paper[0], 8.5);
+  text(ctx, portalLabel, lx + labelW / 2, y - 12, PALETTE.paper[0], 8.5);
 }
 
 function paintStationObject(
@@ -602,27 +527,6 @@ function paintStationObject(
         fill(ctx, ember1, x + 54, y + 12, 7, 7);
         fill(ctx, tide1, x + 63, y + 12, 7, 7);
         fill(ctx, moss4, x + 58, y + 20, 7, 6);
-        break;
-      }
-      case 'arcade_machine': {
-        // Retro pixel arcade cabinet
-        fill(ctx, '#263849', x + 4, y + 4, w - 8, h - 4);
-        fill(ctx, '#39556e', x + 6, y + 6, w - 12, h - 10);
-        // Marquee
-        fill(ctx, ember2, x + 6, y + 6, w - 12, 10);
-        fill(ctx, ember4, x + 10, y + 8, w - 20, 6);
-        // CRT screen
-        const pulse = 0.8 + Math.sin(time * 3.5) * 0.15;
-        ctx.fillStyle = `rgba(116, 192, 189, ${pulse})`;
-        ctx.fillRect(ipx(x + 10), ipx(y + 20), w - 20, 18);
-        fill(ctx, '#1b2b38', x + 14, y + 24, 8, 8);
-        fill(ctx, ember3, x + 26, y + 26, 6, 6);
-        // Joystick deck
-        fill(ctx, '#1f2e3d', x + 4, y + 40, w - 8, 8);
-        fill(ctx, ember1, x + 14, y + 37, 4, 5);
-        fill(ctx, ember4, x + 28, y + 41, 4, 3);
-        fill(ctx, moss4, x + 34, y + 41, 4, 3);
-        glowPool(ctx, x + w / 2, y + h, 30, '116,192,189');
         break;
       }
       case 'whiteboard': {
@@ -704,7 +608,8 @@ function paintStationObject(
   }
 
   // Nameplate below or above station
-  const label = obj.displayName.slice(0, 26);
+  // Default object names are app text; a name someone typed only changes if it matches one exactly.
+  const label = t(obj.displayName).slice(0, 26);
   ctx.font = '700 8.5px Inter, ui-sans-serif, system-ui, sans-serif';
   const tw = Math.min(148, Math.ceil(ctx.measureText(label).width) + 14);
   const ly = obj.layer === 'wall' ? y + h + 3 : y - 17;
@@ -767,7 +672,7 @@ export function drawCommunityPlaza(
 
   // Banner header on the north wall of the plaza
   plate(ctx, 264, 12, 240, 24, PALETTE.paper[3], earth0);
-  text(ctx, 'PLAZA COMUNITARIA · JUEGOS Y PROYECTOS', 384, 27, PALETTE.paper[0], 9.5);
+  text(ctx, t('PLAZA COMUNITARIA · JUEGOS Y PROYECTOS'), 384, 27, PALETTE.paper[0], 9.5);
 
   const area = WORLD_AREAS.community;
   for (const portal of area.portals) {
@@ -775,6 +680,7 @@ export function drawCommunityPlaza(
   }
 
   const sprites: Sprite[] = [];
+  for (const light of STREET_LIGHTS.community) sprites.push({ baseline: light.y, paint: () => drawStreetLight(ctx, light, time) });
   const trees = [
     { x: 64, y: 92 },
     { x: 704, y: 92 },
@@ -806,10 +712,10 @@ export function drawCommunityPlaza(
 
   for (const person of people) {
     const id = person.identity.fingerprint || person.identity.displayName;
-    const at = trackCharacter(id, person.position, dt, !person.isOwn);
+    const at = trackCharacter(id, person.position, dt, !person.isOwn, 'community');
     sprites.push({
       baseline: at.y,
-      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
+      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn, { appearance: person.appearance }),
     });
   }
 
@@ -851,7 +757,7 @@ export function drawStudyLibrary(
 
   // Library header sign
   plate(ctx, 248, 10, 272, 24, PALETTE.paper[3], '#39614c');
-  text(ctx, 'BIBLIOTECA Y TALLER DE ESTUDIO', 384, 25, PALETTE.paper[0], 10);
+  text(ctx, t('BIBLIOTECA Y TALLER DE ESTUDIO'), 384, 25, PALETTE.paper[0], 10);
 
   const area = WORLD_AREAS.study;
   for (const portal of area.portals) {
@@ -859,6 +765,7 @@ export function drawStudyLibrary(
   }
 
   const sprites: Sprite[] = [];
+  for (const light of STREET_LIGHTS.study) sprites.push({ baseline: light.y, paint: () => drawStreetLight(ctx, light, time) });
   for (const obj of registry.listByArea('study')) {
     sprites.push({
       baseline: obj.layer === 'wall' ? obj.y : obj.y + obj.h,
@@ -876,10 +783,10 @@ export function drawStudyLibrary(
 
   for (const person of people) {
     const id = person.identity.fingerprint || person.identity.displayName;
-    const at = trackCharacter(id, person.position, dt, !person.isOwn);
+    const at = trackCharacter(id, person.position, dt, !person.isOwn, 'study');
     sprites.push({
       baseline: at.y,
-      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
+      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn, { appearance: person.appearance }),
     });
   }
 

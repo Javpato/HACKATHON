@@ -23,16 +23,17 @@ function dataAdapter(connection: DataConnection): DataChannel {
 }
 function mediaAdapter(connection: MediaConnection): MediaCall {
   let retry: ReturnType<typeof setTimeout> | undefined;
-  const limit = (kind: 'audio' | 'screen') => {
+  const limit = (kind: 'audio' | 'screen' | 'camera') => {
     const apply = () => {
       for (const sender of connection.peerConnection?.getSenders() ?? []) {
         if (!sender.track) continue;
         const parameters = sender.getParameters();
         if (!parameters.encodings?.length) continue;
         for (const encoding of parameters.encodings) {
-          encoding.maxBitrate = kind === 'audio' ? 48_000 : 2_500_000;
-          if (kind === 'screen') encoding.maxFramerate = 24;
+          encoding.maxBitrate = kind === 'audio' ? 48_000 : kind === 'camera' ? 6_000_000 : 12_000_000;
+          if (kind !== 'audio') encoding.maxFramerate = 30;
         }
+        if (kind === 'camera') parameters.degradationPreference = 'maintain-resolution';
         void sender.setParameters(parameters).catch(() => { /* Browser may not expose bitrate controls. */ });
       }
     };

@@ -1,3 +1,6 @@
+import { STREET_LIGHTS, drawStreetLight } from './lights';
+import { t, defaultText } from '../i18n';
+import type { AvatarCustomization } from '../assets/custom-assets';
 import { type PublicIdentity, type Position } from '../protocol/types';
 import {
   PALETTE, animClock, contactShadow, drawAvatar, drawTree, fill,
@@ -6,7 +9,7 @@ import {
 import { drawPortalSign, WORLD_AREAS } from './areas';
 import { PARCELS, WORLD_TREES, type OccupiedParcel } from './model';
 
-export interface DrawPerson { identity: PublicIdentity; position: Position; isOwn: boolean }
+export interface DrawPerson { identity: PublicIdentity; position: Position; isOwn: boolean; appearance?: AvatarCustomization }
 
 const W = 768;
 const H = 432;
@@ -105,6 +108,12 @@ function paintPaths(ctx: CanvasRenderingContext2D): void {
   }
   fill(ctx, shade(earth2, -8), 0, ROAD_TOP + 26, W, 3);
 
+  // North/south spine sits in the existing gap between parcels; no house is displaced.
+  fill(ctx, earth1, 218, 0, 44, H);
+  fill(ctx, earth3, 222, 0, 36, H);
+  for (let y = 4; y < H; y += 14) {
+    fill(ctx, earth4, 226, y, 12, 5); fill(ctx, shade(earth2, -5), 244, y + 6, 8, 4);
+  }
   for (const parcel of PARCELS) {
     const top = parcel.slot < 3;
     const y0 = top ? 117 : ROAD_BOTTOM;
@@ -155,8 +164,8 @@ function paintEmptyPlot(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
   fill(ctx, earth0, signX - 2, signY + 10, 5, 18);
   fill(ctx, earth3, signX - 2, signY + 10, 2, 18);
   plate(ctx, signX - 31, signY - 12, 62, 26, PALETTE.paper[3], earth0);
-  text(ctx, `PARCELA ${slot + 1}`, signX, signY - 1, PALETTE.paper[1], 8);
-  text(ctx, 'LIBRE', signX, signY + 9, shade(moss1, 40), 8);
+  text(ctx, t('PARCELA {n}', { n: slot + 1 }), signX, signY - 1, PALETTE.paper[1], 8);
+  text(ctx, t('LIBRE'), signX, signY + 9, shade(moss1, 40), 8);
   contactShadow(ctx, signX, signY + 28, 8, 0.26);
 }
 
@@ -293,7 +302,8 @@ function paintHouse(ctx: CanvasRenderingContext2D, item: OccupiedParcel, time: n
   // Name board over the door. The type is shrunk, then ellipsised, so a long
   // house name degrades gracefully instead of being cut mid-word.
   const boardW = w - 16;
-  let label = item.house.name.trim();
+  const houseName = defaultText(item.house.name.trim());
+  let label = houseName;
   let size = 9;
   ctx.font = `700 ${size}px Inter, ui-sans-serif, system-ui, sans-serif`;
   if (ctx.measureText(label).width > boardW - 8) {
@@ -302,14 +312,14 @@ function paintHouse(ctx: CanvasRenderingContext2D, item: OccupiedParcel, time: n
     while (label.length > 4 && ctx.measureText(`${label}...`).width > boardW - 8) {
       label = label.slice(0, -1);
     }
-    if (label.length < item.house.name.trim().length) label = `${label.trimEnd()}...`;
+    if (label.length < houseName.length) label = `${label.trimEnd()}...`;
   }
   plate(ctx, x + 8, y + 26, boardW, 16, warm ? '#fbeedb' : '#f4f6e0', trim);
   text(ctx, label, x + w / 2, y + 37, PALETTE.paper[1], size);
 
   // Who lives here, on a stake by the path.
   const tagY = slot < 3 ? y + h + 16 : y - 22;
-  const tag = item.isOwn ? 'TU CASA' : item.name.slice(0, 15);
+  const tag = item.isOwn ? t('TU CASA') : defaultText(item.name).slice(0, 15);
   ctx.font = '700 9px Inter, ui-sans-serif, system-ui, sans-serif';
   const tw = Math.min(120, Math.ceil(ctx.measureText(tag).width) + 16);
   plate(ctx, item.parcel.doorX - tw / 2, tagY, tw, 15, item.isOwn ? ember4 : PALETTE.paper[3], trim);
@@ -345,19 +355,6 @@ function paintPlaza(ctx: CanvasRenderingContext2D): void {
     fill(ctx, shade(earth2, -4), cx + Math.cos(a) * 40 - 2, cy + Math.sin(a) * 13 - 2, 5, 4);
   }
   fill(ctx, shade(earth4, 14), cx - 8, cy - 4, 16, 8);
-}
-
-function paintLamp(ctx: CanvasRenderingContext2D, x: number, y: number, time: number): void {
-  contactShadow(ctx, x, y + 2, 7, 0.3);
-  fill(ctx, earth0, x - 3, y - 30, 6, 32);
-  fill(ctx, earth2, x - 3, y - 30, 2, 32);
-  fill(ctx, earth0, x - 7, y - 36, 14, 7);
-  const pulse = 0.82 + Math.sin(time * 2.4 + x) * 0.1;
-  ctx.fillStyle = `rgba(255,214,140,${pulse})`;
-  ctx.fillRect(ipx(x - 5), ipx(y - 34), 10, 8);
-  fill(ctx, ember4, x - 5, y - 34, 10, 3);
-  fill(ctx, ember0, x - 7, y - 38, 14, 4);
-  glowPool(ctx, x, y + 2, 40);
 }
 
 function paintAmbience(ctx: CanvasRenderingContext2D, time: number): void {
@@ -450,8 +447,8 @@ export function drawWorld(
     sprites.push({ baseline: item.parcel.y + item.parcel.h, paint: () => paintHouse(ctx, item, time) });
   }
   // Lamps stand on the verge, clear of the plaza and of every door path.
-  for (const x of [238, 530]) {
-    sprites.push({ baseline: ROAD_TOP - 2, paint: () => paintLamp(ctx, x, ROAD_TOP - 2, time) });
+  for (const light of STREET_LIGHTS.residential) {
+    sprites.push({ baseline: light.y, paint: () => drawStreetLight(ctx, light, time) });
   }
 
   for (const person of people) {
@@ -459,7 +456,7 @@ export function drawWorld(
     const at = trackCharacter(id, person.position, dt, !person.isOwn);
     sprites.push({
       baseline: at.y,
-      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn),
+      paint: () => drawAvatar(ctx, at.x, at.y, person.identity, person.position, person.isOwn, { appearance: person.appearance }),
     });
   }
 

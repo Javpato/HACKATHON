@@ -1,3 +1,4 @@
+import { INTERACTION_REACH } from './interactions';
 import { z } from 'zod';
 import type { Rect } from './model';
 
@@ -5,7 +6,7 @@ import type { Rect } from './model';
  * Part 3 — Extensible Interactive Object System
  *
  * Every interactive element in the world (furniture, community stations,
- * whiteboards, arcade machines, study desks, portals, lamps, etc.) is
+ * whiteboards, game tables, study desks, portals, lamps, etc.) is
  * represented through a clean, extensible object abstraction with stable IDs,
  * editable display names, optional custom sprites, permissions, and persistent state.
  */
@@ -17,7 +18,6 @@ export type InteractiveObjectKind =
   | 'computer_project'
   | 'drawing_table_gartic'
   | 'campfire_werewolves'
-  | 'arcade_machine'
   | 'bookshelf_notes'
   | 'flashcard_podium'
   | 'ai_tutor_console'
@@ -97,7 +97,6 @@ export const interactiveObjectSchema = z.object({
     'computer_project',
     'drawing_table_gartic',
     'campfire_werewolves',
-    'arcade_machine',
     'bookshelf_notes',
     'flashcard_podium',
     'ai_tutor_console',
@@ -350,7 +349,7 @@ export class InteractiveObjectRegistry {
       const nx = Math.max(obj.x, Math.min(x, obj.x + obj.w));
       const ny = Math.max(obj.y, Math.min(y, obj.y + obj.h));
       const dist = Math.hypot(x - nx, y - ny);
-      if (dist <= obj.interactionRadius && dist < bestDist) {
+      if (dist <= Math.min(INTERACTION_REACH,obj.interactionRadius) && dist < bestDist) {
         bestDist = dist;
         best = obj;
       }

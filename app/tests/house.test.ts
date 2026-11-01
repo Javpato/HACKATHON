@@ -37,7 +37,7 @@ describe('house doorway', () => {
   it('lets E leave only from the doormat, not from the spawn point or the room', async () => {
     const { atHouseDoor, HOUSE_SPAWN, HOUSE_DOOR } = await import('../src/house/model');
     expect(atHouseDoor({ ...HOUSE_DOOR, direction: 'down', moving: false })).toBe(true);
-    expect(atHouseDoor({ x: 400, y: 380, direction: 'down', moving: false })).toBe(true);
+    expect(atHouseDoor({ x: 396, y: 380, direction: 'down', moving: false })).toBe(true);
     expect(atHouseDoor(HOUSE_SPAWN)).toBe(false);
     expect(atHouseDoor({ x: 384, y: 220, direction: 'down', moving: false })).toBe(false);
     expect(atHouseDoor({ x: 120, y: 396, direction: 'down', moving: false })).toBe(false);

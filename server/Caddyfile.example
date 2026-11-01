@@ -1,0 +1,4 @@
+# Automatic HTTPS for wss:// — replace the domain with yours.
+aldea.example.org {
+	reverse_proxy 127.0.0.1:8787
+}

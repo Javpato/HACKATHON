@@ -10,7 +10,7 @@ const member = (id: string, slot: number, connected = true) => ({
 const view = (members: ReturnType<typeof member>[], houses: PublicHouse[]): AppView => ({
   identity: identity('own'), ownHouse: house('own'), contacts: [], friendCode: '', storage: 'memory',
   identitySaved: false, lockedIdentity: false, notice: null, diagnostics: [], editorText: '',
-  network: { phase: 'JOINED', isHost: true, sessionId: 's', invite: '', members, houses,
+  network: { gameCamera: { local: null, remote: [], pending: false, error: null }, phase: 'JOINED', isHost: true, hostId: null, sessionId: 's', invite: '', members, houses,
     pendingJoins: [], pendingVisits: [], strokes: [], hostGraceRemainingMs: null, error: null,
     privateCall: { with: null, active: false, incoming: [] },
     media: { micEnabled: false, muted: false, deafened: false, pushToTalk: false, talking: false,

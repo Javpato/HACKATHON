@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+dist
+server/dist
+server/data
+test-results
+playwright-report
+deliverables
+app/src-tauri/target
+.git

@@ -1,7 +1,15 @@
+import { hasHouseAccess, WorkspaceCoordinator, LocalWorkspaces, emptyWorkspace, sameSpace, spaceKey, parseScopedBoard, type WorkspaceCommand, type WorkspaceView } from '../house/workspaces';
+import { t } from '../i18n';
+import { VoiceHub, emptyVoice, type VoiceCommand, type VoiceView } from '../media/voice';
+import { appearanceSchema, normalizeAppearance, type AvatarAppearance } from '../assets/appearance';
+import { GameCameraManager, type CameraPeer } from '../media/game-camera';
+import { cameraMetadataSchema, cameraPresenceSchema } from '../protocol/schema';
+import type { CameraActivity } from '../protocol/types';
+import { AREA_NAMES, areaOf, isInScene } from '../world/location';
 import { canonical, randomId, sign, validatePublicIdentity, verify } from '../identity';
 import { MediaManager, type MediaDevicesAdapter, type MediaPeer } from '../media/manager';
-import { houseSchema, positionSchema, strokeSchema, type Hello, type Invite, type Payload, type SignedHouse, type SignedStroke, type Transcript, type WireMessage } from '../protocol/schema';
-import { LIMITS, type BoardStroke, type LocalIdentity, type Member, type NetworkView, type Position, type PublicHouse, type PublicIdentity, type SessionPhase, type VillageActions, type VisitRequest } from '../protocol/types';
+import { houseSchema, positionSchema, strokeSchema, type Hello, type Invite, type Payload, type SignedHouse, type SignedStroke, type SignedBoardCommit, type Transcript, type WireMessage } from '../protocol/schema';
+import { LIMITS, type AppChannel, type AppMessage, type BoardStroke, type LocalIdentity, type Member, type NetworkView, type Position, type PublicHouse, type PublicIdentity, type SessionPhase, type VillageActions, type VisitRequest } from '../protocol/types';
 import { createInvite, encodeInvite, parseInvite } from '../signaling/invite';
 import { createPeerEndpoint } from '../signaling/peerjs';
 import { BoundedChannel } from '../transport/bounded-channel';
@@ -11,42 +19,33 @@ import { BoardStore } from './board';
 /** The stages of opening or joining, in the order they run. */
 type OpenStep = 'identity' | 'signaling' | 'session' | 'signing' | 'invite';
 
-/** Error name only. Never the message, which can carry endpoints or paths. */
-function errorName(error: unknown): string {
-  if (error instanceof Error && error.name && error.name !== 'Error') return error.name;
-  if (error instanceof Error && error.message) return error.message.slice(0, 80);
-  return 'UnknownError';
-}
-
 function describeOpenFailure(step: OpenStep, error: unknown): string {
-  const name = errorName(error);
   switch (step) {
     case 'identity':
-      return `Tu identidad no se pudo verificar en este entorno (${name}). Falla la criptografía del navegador, no la red.`;
+      return `Tu identidad no se pudo verificar en este entorno. Falla la criptografía del navegador, no la red.`;
     case 'signaling':
-      return `No se pudo abrir la señalización (${name}). Comprueba la red o vuelve a intentarlo; el servidor es gratuito y a veces rechaza conexiones.`;
+      return `No se pudo abrir la señalización. Comprueba la red o vuelve a intentarlo; el servidor es gratuito y a veces rechaza conexiones.`;
     case 'signing':
-      return `No se pudo firmar tu casa (${name}). Falla la criptografía del navegador, no la red.`;
+      return `No se pudo firmar tu casa. Falla la criptografía del navegador, no la red.`;
     case 'invite':
-      return `La señalización se abrió, pero no se pudo crear la invitación (${name}).`;
+      return `La señalización se abrió, pero no se pudo crear la invitación.`;
     default:
-      return `La señalización se abrió, pero no se pudo preparar la sesión (${name}).`;
+      return `La señalización se abrió, pero no se pudo preparar la sesión.`;
   }
 }
 
 function describeJoinFailure(step: OpenStep, error: unknown): string {
-  const name = errorName(error);
   switch (step) {
     case 'identity':
-      return `Tu identidad no se pudo verificar en este entorno (${name}). Falla la criptografía del navegador, no la red.`;
+      return `Tu identidad no se pudo verificar en este entorno. Falla la criptografía del navegador, no la red.`;
     case 'signaling':
-      return `No se pudo abrir la señalización (${name}). Comprueba la red y vuelve a intentarlo.`;
+      return `No se pudo abrir la señalización. Comprueba la red y vuelve a intentarlo.`;
     default:
-      return `No se pudo conectar con quien te invitó (${name}). Comprueba la invitación; algunas redes impiden WebRTC directo.`;
+      return `No se pudo conectar con quien te invitó. Comprueba la invitación; algunas redes impiden WebRTC directo.`;
   }
 }
 
-export interface VillageClientOptions { transportFactory?: TransportFactory; clock?: Clock; mediaDevices?: MediaDevicesAdapter }
+export interface VillageClientOptions { transportFactory?: TransportFactory; clock?: Clock; mediaDevices?: MediaDevicesAdapter; appearance?: AvatarAppearance }
 type Intent = 'join' | 'resume' | 'mesh';
 interface Link {
   raw: DataChannel; wire: BoundedChannel; initiator: boolean; intent?: Intent; expected?: PublicIdentity | string;
@@ -57,11 +56,15 @@ interface Link {
   unsubscribe: (() => void)[];
 }
 interface PendingVisit extends VisitRequest { visitorId: string; created: number }
-const initialPosition = (): Position => ({ x: 384, y: 240, direction: 'down', moving: false });
+const initialPosition = (): Position => ({ areaId: 'residential', x: 384, y: 215, direction: 'down', moving: false });
 const activePhases: SessionPhase[] = ['SIGNALING', 'CONNECTING', 'AUTHENTICATING', 'PENDING_APPROVAL', 'JOINED', 'RECONNECTING'];
+
+/** Owner of a house board (`house:<owner>:<furniture>`), or null for area boards. */
+export function boardOwner(boardId: string): string | null { return /^house:([a-f0-9]{64}):/.exec(boardId)?.[1] ?? null; }
 
 export class VillageClient implements VillageActions {
   private ownHouse: PublicHouse;
+  private ownAppearance: AvatarAppearance;
   private phase: SessionPhase = 'IDLE';
   private isHost = false;
   private sessionId: string | null = null;
@@ -79,9 +82,21 @@ export class VillageClient implements VillageActions {
   private lastReconnect = -Infinity;
   private error: string | null = null;
   private listeners = new Set<(view: NetworkView) => void>();
+  private appListeners = new Set<(message: AppMessage) => void>();
   private media: MediaManager;
+  private camera: GameCameraManager;
+  private cameraActivity: CameraActivity | null = null;
+  private cameraActivities = new Map<string, CameraActivity | null>();
   private board = new BoardStore();
+  private selectedBoard: string | null = null;
+  private boardCommits = new Map<string, SignedBoardCommit>();
   /** Who I want a private call with, and who every other member wants one with. */
+  private workspaceState: WorkspaceView = emptyWorkspace();
+  private workspace: WorkspaceCoordinator;
+  private workspaceStorage: LocalWorkspaces;
+  private offlinePosition: Position = {x:384,y:344,direction:'up',moving:false};
+  private voiceHub = new VoiceHub();
+  private voiceState: VoiceView = emptyVoice();
   private privateWith: string | null = null;
   private privateOf = new Map<string, string | null>();
   private boardRetries = new Map<string, SignedStroke>();
@@ -101,33 +116,62 @@ export class VillageClient implements VillageActions {
   private runningJob = false;
 
   constructor(private identity: LocalIdentity, ownHouse: PublicHouse, options: VillageClientOptions = {}) {
+    this.ownAppearance = normalizeAppearance(options.appearance);
+    this.camera = new GameCameraManager(() => this.notify(), options.mediaDevices);
     this.ownHouse = houseSchema.parse(ownHouse);
     if (ownHouse.ownerId !== identity.public.fingerprint) throw new Error('La casa debe pertenecer a la identidad local.');
+    this.workspaceStorage = new LocalWorkspaces(this.id);
+    this.workspace = new WorkspaceCoordinator(id => this.members.get(id) ?? (id === this.id && this.phase !== 'JOINED' ? { identity:this.identity.public, connected:true, houseId:this.id, position:this.offlinePosition } : undefined),
+      owner => this.houses.get(owner)?.house ?? (owner === this.id ? this.ownHouse : undefined), this.workspaceStorage,
+      (id, space) => { const member=this.members.get(id); const position={...(member?.position??this.offlinePosition),x:384,y:344,moving:false,space:space??undefined}; if(member)member.position=position;else if(id===this.id)this.offlinePosition=position; });
     this.clock = options.clock ?? systemClock;
     this.factory = options.transportFactory ?? createPeerEndpoint;
     this.media = new MediaManager(() => this.notify(), options.mediaDevices, (id, kind) => { const link = this.linkFor(id); if (link) this.send(link, { type: 'media.received', kind }); });
   }
   get view(): NetworkView {
-    const room = this.members.get(this.id)?.houseId ?? this.id;
+    const room = this.selectedBoard ?? this.members.get(this.id)?.houseId ?? this.id;
     return {
-      phase: this.phase, isHost: this.isHost, sessionId: this.sessionId,
+      phase: this.phase, isHost: this.isHost, hostId: this.hostId, sessionId: this.sessionId,
       invite: this.isHost && this.invite ? encodeInvite(this.invite) : null,
       members: structuredClone([...this.members.values()].sort((a, b) => a.slot - b.slot)),
       houses: structuredClone([...this.houses.values()].map(item => item.house)),
       pendingJoins: [...this.links].filter(link => link.authenticated && !link.approved && !!link.requestId && !link.closed).map(link => ({ requestId: link.requestId!, identity: structuredClone(link.identity!) })),
       pendingVisits: [...this.visits.values()].filter(request => request.houseId === this.id).map(({ requestId, identity, houseId }) => ({ requestId, identity: structuredClone(identity), houseId })),
-      strokes: structuredClone(this.board.documents(room).map(document => document.stroke)),
+      boardRef: room, strokes: structuredClone(this.board.documents(room).map(document => document.stroke)),
       hostGraceRemainingMs: this.hostDeadline === null ? null : Math.max(0, this.hostDeadline - this.clock.now()),
-      error: this.error, media: this.media.view,
-      privateCall: {
-        with: this.privateWith,
-        active: !!this.privateWith && this.partnerOf(this.id) === this.privateWith,
-        incoming: [...this.privateOf].filter(([from, to]) => to === this.id && this.members.get(from)?.connected && this.privateWith !== from).map(([from]) => from),
-      },
+      error: this.error, media: this.media.view, gameCamera: this.camera.view,
+      workspace: this.phase === 'JOINED' ? this.workspaceState : this.workspace.view(this.id),
+      voice: this.voiceState,
+      voiceDirectory: [...this.members.values()].filter(m => m.connected).map(m => m.identity),
+      privateCall: this.privateCallView(),
     };
   }
   private get id(): string { return this.identity.public.fingerprint; }
   subscribe(listener: (view: NetworkView) => void): () => void { this.listeners.add(listener); listener(this.view); return () => this.listeners.delete(listener); }
+  onApp(listener: (message: AppMessage) => void): () => void { this.appListeners.add(listener); return () => this.appListeners.delete(listener); }
+  private deliverApp(message: AppMessage): void {
+    if (message.channel === 'camera') {
+      try {
+        const presence = cameraPresenceSchema.parse(JSON.parse(message.data));
+        if (!this.members.get(message.from)?.connected) return;
+        this.cameraActivities.set(message.from, presence.game);
+        this.syncCamera();
+        if (presence.request) this.sendApp('camera', message.from, JSON.stringify({ game: this.cameraActivity, request: false }));
+        this.notify();
+      } catch { /* Invalid camera presence cannot affect other activities. */ }
+      return;
+    }
+    for (const listener of this.appListeners) { try { listener(message); } catch { /* An activity must not disrupt the protocol. */ } }
+  }
+  /** Shared activities. The host routes; everyone else only ever talks to the host. */
+  sendApp(channel: AppChannel, to: string | null, data: string): boolean {
+    if (this.phase !== 'JOINED' || data.length < 2 || data.length > LIMITS.appData) return false;
+    if (to === this.id) return false;
+    if (!this.isHost) return this.sendHost({ type: 'app.send', channel, to, data });
+    if (to !== null) { const link = this.linkFor(to); return !!link && this.send(link, { type: 'app.relay', channel, from: this.id, data }); }
+    this.broadcast({ type: 'app.relay', channel, from: this.id, data });
+    return true;
+  }
   private notify(): void {
     if (this.disposed) return;
     const view = this.view;
@@ -164,7 +208,7 @@ export class VillageClient implements VillageActions {
       if (generation !== this.generation || this.disposed) { endpoint.destroy(); return; }
       step = 'session';
       this.attachEndpoint(endpoint);
-      this.members.set(this.id, { identity: structuredClone(this.identity.public), endpoint: endpoint.id, slot: 0, connected: true, houseId: null, position: initialPosition() });
+      this.members.set(this.id, { identity: structuredClone(this.identity.public), endpoint: endpoint.id, slot: 0, connected: true, houseId: null, position: initialPosition(), appearance: this.ownAppearance });
       step = 'signing';
       const ownDocument = await this.signHouse(this.ownHouse);
       if (generation !== this.generation) return;
@@ -199,8 +243,8 @@ export class VillageClient implements VillageActions {
     }
   }
   private attachEndpoint(endpoint: TransportEndpoint): void {
-    this.endpoint = endpoint; this.media.attach(endpoint);
-    this.endpointUnsubscribe.push(endpoint.onConnection(raw => this.attach(raw, false)), endpoint.onCall(call => this.media.receive(call)), endpoint.onSignalingChange(connected => {
+    this.endpoint = endpoint; this.media.attach(endpoint); this.camera.attach(endpoint);
+    this.endpointUnsubscribe.push(endpoint.onConnection(raw => this.attach(raw, false)), endpoint.onCall(call => { if (cameraMetadataSchema.safeParse(call.metadata).success) this.camera.receive(call); else this.media.receive(call); }), endpoint.onSignalingChange(connected => {
       if (!connected && this.phase === 'JOINED') this.setError('Se perdió la señalización; las conexiones P2P existentes siguen activas.');
     }));
   }
@@ -341,13 +385,34 @@ export class VillageClient implements VillageActions {
     this.notify();
   }
   private snapshot(): Extract<Payload, { type: 'session.snapshot' }> { return { type: 'session.snapshot', revision: this.rosterRevision, members: structuredClone([...this.members.values()]), houses: structuredClone([...this.houses.values()]) }; }
-  private rosterChanged(): void { this.rosterRevision++; this.broadcast(this.snapshot()); this.reconcileMesh(); this.syncMedia(); this.notify(); }
+  private rosterChanged(): void { this.publishVoice(); this.publishWorkspaces(); this.rosterRevision++; this.broadcast(this.snapshot()); this.reconcileMesh(); this.syncMedia(); this.notify(); }
   private async signHouse(house: PublicHouse): Promise<SignedHouse> { return { house: structuredClone(house), signature: await sign(this.identity, 'house', { sessionId: this.sessionId, epoch: this.epoch, house }) }; }
   private async verifyHouse(document: SignedHouse, identity: PublicIdentity): Promise<boolean> { return document.house.ownerId === identity.fingerprint && await verify(identity, 'house', { sessionId: this.sessionId, epoch: this.epoch, house: document.house }, document.signature); }
 
   private async handle(link: Link, payload: Payload): Promise<void> {
     const sender = link.identity!.fingerprint;
     const fromHost = sender === this.hostId;
+    if (payload.type === 'workspace.command') {
+      if (!this.isHost) throw new Error('Only coordinator accepts workspace commands');
+      this.applyWorkspace(sender, payload.command); return;
+    }
+    if (payload.type === 'workspace.state') {
+      if (!fromHost || this.isHost) throw new Error('Only coordinator publishes workspaces');
+      this.workspaceState=payload.workspace;
+      const self=this.members.get(this.id);if(self&&!sameSpace(self.position.space,payload.workspace.space))self.position={...self.position,x:384,y:344,space:payload.workspace.space??undefined};
+      const owner=this.members.get(this.id)?.houseId;
+      if(owner===this.id&&payload.workspace.space?.roomId&&payload.workspace.document)this.workspaceStorage.put(owner,payload.workspace.space,payload.workspace.document);
+      this.syncMedia();this.notify();return;
+    }
+    if (payload.type === 'voice.command') {
+      if (!this.isHost) throw new Error('Only coordinator accepts voice commands');
+      this.applyVoice(sender, payload.command); return;
+    }
+    if (payload.type === 'voice.error') { if (fromHost) this.setError(t(payload.message)); return; }
+    if (payload.type === 'voice.state') {
+      if (!fromHost || this.isHost) throw new Error('Only coordinator publishes voice membership');
+      this.voiceState = payload.voice; this.syncMedia(); this.notify(); return;
+    }
     if (payload.type === 'session.snapshot') {
       if (this.isHost || !fromHost) throw new Error('Only coordinator publishes roster');
       if (payload.revision <= this.rosterRevision) return;
@@ -374,8 +439,17 @@ export class VillageClient implements VillageActions {
       this.rosterRevision = payload.revision; this.hostDeadline = null; this.error = null;
       const firstJoin = this.phase !== 'JOINED'; this.phase = 'JOINED';
       if (firstJoin) this.publishHouseDocument();
-      this.announceMedia(link);
+      if (firstJoin && JSON.stringify(self.appearance) !== JSON.stringify(this.ownAppearance)) this.sendHost({ type: 'avatar.update', appearance: this.ownAppearance });
+      if (firstJoin) this.announceMedia(link);
       this.reconcileMesh(); this.syncMedia(); this.notify(); return;
+    }
+    if (payload.type === 'avatar.update') {
+      if (!this.isHost) throw new Error('Only the coordinator updates appearances');
+      const member = this.members.get(sender);
+      if (member?.connected && JSON.stringify(member.appearance) !== JSON.stringify(payload.appearance)) {
+        member.appearance = payload.appearance; this.rosterChanged();
+      }
+      return;
     }
     if (payload.type === 'media.token') { link.sendToken = payload.token; this.syncMedia(); return; }
     if (payload.type === 'media.received') {
@@ -404,7 +478,7 @@ export class VillageClient implements VillageActions {
       const previous = this.houses.get(sender);
       if (previous && payload.document.house.revision <= previous.house.revision) return;
       this.houses.set(sender, structuredClone(payload.document));
-      if (payload.document.house.access === 'locked') for (const member of this.members.values()) if (member.houseId === sender && member.identity.fingerprint !== sender) member.houseId = null;
+      if (payload.document.house.access === 'locked') for (const member of this.members.values()) if (member.houseId === sender && member.identity.fingerprint !== sender && !hasHouseAccess(payload.document.house,member.identity.fingerprint)) {member.houseId = null;member.position={...member.position,space:undefined};}
       this.rosterChanged(); return;
     }
     if (payload.type === 'house.visit') { if (!this.isHost) throw new Error('Only coordinator routes visits'); this.requestVisit(sender, payload.ownerId, payload.requestId); return; }
@@ -416,13 +490,20 @@ export class VillageClient implements VillageActions {
     }
     if (payload.type === 'house.visit.decision') { if (!this.isHost) throw new Error('Wrong visit role'); this.resolveVisit(payload.requestId, sender, payload.accepted); return; }
     if (payload.type === 'house.visit.result') { if (!fromHost) throw new Error('Wrong visit result role'); if (!payload.accepted) this.setError('La casa está cerrada, desconectada o no aceptó la visita.'); return; }
-    if (payload.type === 'house.leave') { if (!this.isHost) throw new Error('Wrong leave route'); this.cancelVisits(sender); const member = this.members.get(sender); if (member) { member.houseId = null; this.rosterChanged(); } return; }
+    if (payload.type === 'house.leave') { if (!this.isHost) throw new Error('Wrong leave route'); this.cancelVisits(sender); const member = this.members.get(sender); if (member) { member.houseId = null; member.position={...member.position,space:undefined}; this.rosterChanged(); } return; }
     if (payload.type === 'house.kick') { if (!this.isHost) throw new Error('Wrong owner kick route'); this.removeVisitor(sender, payload.identityId); return; }
     if (payload.type === 'player.position') {
       if (!this.isHost) throw new Error('Wrong position route'); const member = this.members.get(sender);
-      if (member) { member.position = payload.position; this.broadcast({ type: 'player.relay', identityId: sender, position: payload.position }, `position/${sender}`); this.notify(); } return;
+      if (member) {
+        const changedArea = areaOf(member.position) !== areaOf(payload.position);
+        if (!sameSpace(member.position.space, payload.position.space)) return;
+        member.position = payload.position;
+        this.broadcast({ type: 'player.relay', identityId: sender, position: payload.position }, `position/${sender}`);
+        if (changedArea) this.rosterChanged(); else this.notify();
+      } return;
     }
-    if (payload.type === 'player.relay') { if (!fromHost || this.isHost) throw new Error('Wrong position relay'); const member = this.members.get(payload.identityId); if (member) { member.position = payload.position; this.notify(); } return; }
+    if (payload.type === 'player.relay') { if (!fromHost || this.isHost) throw new Error('Wrong position relay'); const member = this.members.get(payload.identityId); if (member) { const changedArea = areaOf(member.position) !== areaOf(payload.position); member.position = payload.position; if (changedArea) this.syncMedia(); this.notify(); } return; }
+    if (payload.type === 'board.commit') { await this.receiveBoardCommit(link, payload.document); return; }
     if (payload.type === 'board.stroke') { await this.receiveStroke(link, payload.document, false); return; }
     if (payload.type === 'board.sync.request') {
       if (!this.sameRoom(sender, payload.boardId)) throw new Error('Board outside authorized house');
@@ -431,7 +512,7 @@ export class VillageClient implements VillageActions {
       if (!sync || sync.boardId !== payload.boardId || sync.cursor !== payload.cursor) throw new Error('Invalid board sync cursor');
       let document = sync.documents[payload.cursor] ?? null;
       // Offline own drafts are rebound to this session before sharing; old-session signatures never go on the wire.
-      if (document?.stroke.author === this.id) document = { stroke: document.stroke, signature: await sign(this.identity, 'board', { sessionId: this.sessionId, epoch: this.epoch, stroke: document.stroke }) };
+      if (document && (document.stroke.author === this.id || boardOwner(document.stroke.boardId) === this.id)) document = { stroke: document.stroke, signature: await sign(this.identity, 'board', { sessionId: this.sessionId, epoch: this.epoch, stroke: document.stroke }) };
       if (!this.active(link) || !this.sameRoom(sender, payload.boardId)) return;
       const next = payload.cursor + 1 < sync.documents.length ? payload.cursor + 1 : null;
       this.send(link, { type: 'board.sync.response', boardId: payload.boardId, document, next });
@@ -445,6 +526,20 @@ export class VillageClient implements VillageActions {
       if (payload.next !== null) { link.syncExpected = payload.next; this.send(link, { type: 'board.sync.request', boardId: payload.boardId, cursor: payload.next }); } else link.syncExpected = undefined;
       return;
     }
+    if (payload.type === 'app.send') {
+      if (!this.isHost) throw new Error('Only the coordinator routes activities');
+      const relay: Payload = { type: 'app.relay', channel: payload.channel, from: sender, data: payload.data };
+      if (payload.to === null) {
+        for (const other of this.links) if (other !== link && other.approved) this.send(other, relay);
+        this.deliverApp({ channel: payload.channel, from: sender, data: payload.data });
+      } else if (payload.to === this.id) this.deliverApp({ channel: payload.channel, from: sender, data: payload.data });
+      else { const target = this.linkFor(payload.to); if (target) this.send(target, relay); }
+      return;
+    }
+    if (payload.type === 'app.relay') {
+      if (!fromHost || this.isHost || payload.from === this.id || (payload.from !== sender && !this.members.get(payload.from)?.connected)) throw new Error('Wrong activity relay');
+      this.deliverApp({ channel: payload.channel, from: payload.from, data: payload.data }); return;
+    }
     throw new Error('Unsupported event');
   }
 
@@ -452,6 +547,7 @@ export class VillageClient implements VillageActions {
     const parsed = houseSchema.safeParse(house);
     if (!parsed.success || house.ownerId !== this.id || house.revision < this.ownHouse.revision || (house.revision === this.ownHouse.revision && canonical(house) !== canonical(this.ownHouse))) { this.setError('Solo puedes publicar tu casa con una revisión nueva y campos públicos válidos.'); return; }
     this.ownHouse = parsed.data;
+    if(this.phase!=='JOINED')this.workspace.reconcile([this.id]);
     if (this.phase === 'JOINED') this.publishHouseDocument();
     this.notify();
   }
@@ -462,24 +558,25 @@ export class VillageClient implements VillageActions {
       if (generation !== this.generation || this.phase !== 'JOINED') return;
       if (this.isHost) {
         this.houses.set(this.id, document);
-        if (house.access === 'locked') for (const member of this.members.values()) if (member.houseId === this.id && member.identity.fingerprint !== this.id) member.houseId = null;
+        if (house.access === 'locked') for (const member of this.members.values()) if (member.houseId === this.id && member.identity.fingerprint !== this.id && !hasHouseAccess(house,member.identity.fingerprint)) {member.houseId = null;member.position={...member.position,space:undefined};}
         this.rosterChanged();
       } else this.sendHost({ type: 'house.publish', document });
     });
   }
   visitHouse(ownerId: string): void {
     if (this.phase !== 'JOINED') { this.setError('Abre o únete a un vecindario para visitar una casa.'); return; }
-    this.media.suspend();
+    if (!this.voiceState.selected) this.media.suspend(); this.camera.suspend();
     const requestId = randomId();
     if (this.isHost) this.requestVisit(this.id, ownerId, requestId); else this.sendHost({ type: 'house.visit', requestId, ownerId });
   }
   private requestVisit(visitorId: string, ownerId: string, requestId: string): void {
     const visitor = this.members.get(visitorId); const owner = this.members.get(ownerId); const house = this.houses.get(ownerId)?.house;
     const reject = () => { const link = this.linkFor(visitorId); if (link) this.send(link, { type: 'house.visit.result', requestId, accepted: false }); else if (visitorId === this.id) this.setError('La casa no está disponible.'); };
-    if (!visitor?.connected || !owner?.connected || !house || (house.access === 'locked' && visitorId !== ownerId)) { reject(); return; }
+    if (!visitor?.connected || !house || (house.access === 'locked' && visitorId !== ownerId && !hasHouseAccess(house,visitorId))) { reject(); return; }
     // A new request cancels this visitor's older pending permission.
     for (const [id, visit] of this.visits) if (visit.visitorId === visitorId) this.visits.delete(id);
-    if (visitorId === ownerId || house.access === 'open') { visitor.houseId = ownerId; this.rosterChanged(); return; }
+    if (visitorId === ownerId || house.access === 'open' || hasHouseAccess(house,visitorId)) { visitor.houseId = ownerId; visitor.position={...visitor.position,space:undefined}; this.rosterChanged(); return; }
+    if (!owner?.connected) { reject(); return; }
     if (this.visits.size >= 12) { reject(); return; }
     this.visits.set(requestId, { requestId, visitorId, identity: visitor.identity, houseId: ownerId, created: this.clock.now() });
     if (ownerId !== this.id) { const link = this.linkFor(ownerId); if (!link || !this.send(link, { type: 'house.visit.request', requestId, visitorId, ownerId })) { this.visits.delete(requestId); reject(); } }
@@ -497,22 +594,22 @@ export class VillageClient implements VillageActions {
     this.visits.delete(requestId);
     const visitor = this.members.get(request.visitorId); const owner = this.members.get(ownerId); const house = this.houses.get(ownerId)?.house;
     const accepted = !!(accept && visitor?.connected && owner?.connected && house && house.access !== 'locked');
-    if (accepted) { visitor!.houseId = ownerId; this.rosterChanged(); }
+    if (accepted) { visitor!.houseId = ownerId; visitor!.position={...visitor!.position,space:undefined}; this.rosterChanged(); }
     const link = this.linkFor(request.visitorId);
     if (link) this.send(link, { type: 'house.visit.result', requestId, accepted }); else if (!accepted) this.setError('La visita no fue aceptada.');
     this.notify();
   }
   leaveHouse(): void {
-    this.media.suspend();
+    if (!this.voiceState.selected) this.media.suspend(); this.camera.suspend();
     if (this.phase !== 'JOINED') return;
-    if (this.isHost) { this.cancelVisits(this.id); const member = this.members.get(this.id); if (member) member.houseId = null; this.rosterChanged(); }
+    if (this.isHost) { this.cancelVisits(this.id); const member = this.members.get(this.id); if (member) { member.houseId = null; member.position={...member.position,space:undefined}; } this.rosterChanged(); }
     else this.sendHost({ type: 'house.leave' });
   }
   private cancelVisits(visitorId: string): void { for (const [id, request] of this.visits) if (request.visitorId === visitorId) this.visits.delete(id); }
   kickVisitor(identityId: string): void { if (this.phase !== 'JOINED') return; if (this.isHost) this.removeVisitor(this.id, identityId); else this.sendHost({ type: 'house.kick', identityId }); }
   private removeVisitor(ownerId: string, visitorId: string): void {
     const visitor = this.members.get(visitorId);
-    if (visitor && visitorId !== ownerId && visitor.houseId === ownerId) { visitor.houseId = null; this.rosterChanged(); }
+    if (visitor && visitorId !== ownerId && visitor.houseId === ownerId) { visitor.houseId = null; visitor.position={...visitor.position,space:undefined}; this.rosterChanged(); }
   }
   kickMember(identityId: string): void {
     if (!this.isHost || identityId === this.id || this.phase !== 'JOINED') return;
@@ -522,13 +619,18 @@ export class VillageClient implements VillageActions {
     if (link) this.clock.setTimeout(() => this.closeLink(link, false), 100);
   }
   move(position: Position): void {
-    const parsed = positionSchema.safeParse(position);
+    const previous = this.members.get(this.id)?.position;
+    const parsed = positionSchema.safeParse({ ...position, areaId: position.areaId ?? (previous ? areaOf(previous) : 'residential') });
     if (!parsed.success || this.phase !== 'JOINED') return;
-    const self = this.members.get(this.id); if (self) self.position = parsed.data;
+    const self = this.members.get(this.id);
+    const changedArea = !!self && areaOf(self.position) !== areaOf(parsed.data);
+    if (self && !sameSpace(self.position.space, parsed.data.space)) return;
+    if (self) self.position = parsed.data;
     this.pendingPosition = parsed.data;
     const elapsed = this.clock.now() - this.lastPositionSent;
-    if (elapsed >= 100) this.flushPosition();
+    if (changedArea || elapsed >= 100) this.flushPosition();
     else if (!this.moveTimer) this.moveTimer = this.clock.setTimeout(() => { this.moveTimer = undefined; this.flushPosition(); }, 100 - elapsed);
+    if (changedArea) { if (this.isHost) this.rosterChanged(); else this.syncMedia(); }
     this.notify();
   }
   private flushPosition(): void {
@@ -559,16 +661,81 @@ export class VillageClient implements VillageActions {
     if (!document || document.stroke.author !== this.id || document.stroke.deleted) return;
     this.sendStroke({ ...document.stroke, seq: document.stroke.seq + 1, deleted: true });
   }
+  private canAccessBoard(identityId: string, boardId: string): boolean {
+    const member = this.members.get(identityId);
+    if (!member?.connected) return false;
+    const scoped=parseScopedBoard(boardId);
+    if(scoped){const doc=this.isHost?this.workspaceStorage.get(scoped.owner,scoped.space):sameSpace(this.workspaceState.space,scoped.space)?this.workspaceState.document:null;return this.workspace.canRead(identityId,scoped.owner,scoped.space)&&!!doc?.furniture.some(f=>f.id===scoped.furniture&&f.kind==='board');}
+    const match = /^house:([a-f0-9]{64}):([A-Za-z0-9_-]+)$/.exec(boardId);
+    if (match) return !member.position.space && member.houseId === match[1] && !!this.houses.get(match[1])?.house.furniture.some(f => f.id === match[2] && f.kind === 'board');
+    const area = /^area:(residential|community|study):/.exec(boardId);
+    if (area) return member.houseId === null && areaOf(member.position) === area[1];
+    return member.houseId === boardId;
+  }
   private sameRoom(identityId: string, boardId: string): boolean {
-    const self = this.members.get(this.id); const peer = this.members.get(identityId);
-    return this.phase === 'JOINED' && !!self?.connected && self.houseId === boardId && !!peer?.connected && peer.houseId === boardId;
+    return this.phase === 'JOINED' && this.canAccessBoard(this.id, boardId) && this.canAccessBoard(identityId, boardId);
+  }
+  selectBoard(ref: string | null): void {
+    if (ref === this.selectedBoard) return;
+    this.selectedBoard = ref;
+    for (const link of this.links) { link.syncRoom = undefined; link.syncExpected = undefined; }
+    this.syncMedia(); this.notify();
+  }
+  commitBoard(boardId: string, changes: BoardStroke[]): Promise<boolean> {
+    if (!changes.length) return Promise.resolve(true);
+    const localOnly = !activePhases.includes(this.phase);
+    // In my own house I may change anyone's layer; everywhere else only my own objects.
+    const moderator = boardOwner(boardId) === this.id;
+    if (changes.length > 128 || changes.some(s => (s.author !== this.id && !moderator) || s.boardId !== boardId || !strokeSchema.safeParse(s).success)
+      || (!localOnly && !this.canAccessBoard(this.id, boardId))) return Promise.reject(new Error('No puedes modificar esta pizarra.'));
+    if (this.localJobs.length >= LIMITS.queueMessages) return Promise.reject(new Error('Espera a que se guarden los cambios anteriores.'));
+    return new Promise((resolve, reject) => { this.queue(async () => {
+      try {
+        const generation = this.generation;
+        const documents: SignedStroke[] = [];
+        for (const stroke of changes) documents.push({ stroke, signature: await sign(this.identity, 'board', { sessionId: this.sessionId, epoch: this.epoch, stroke }) });
+        const unsigned = { id: randomId(), boardId, documents };
+        const document: SignedBoardCommit = { ...unsigned, signature: await sign(this.identity, 'board-commit', { sessionId: this.sessionId, epoch: this.epoch, ...unsigned }) };
+        if (generation !== this.generation || (!localOnly && !this.canAccessBoard(this.id, boardId))) throw new Error('La pizarra cambió antes de guardar.');
+        if (new TextEncoder().encode(JSON.stringify({ type: 'board.commit', document })).byteLength > LIMITS.messageBytes - 1024) throw new Error('La selección es demasiado grande. Selecciona una zona más pequeña.');
+        const result = this.board.applyBatch(documents);
+        if (result === 'full') throw new Error('La pizarra alcanzó su capacidad. Exporta tu trabajo antes de continuar.');
+        if (result === 'forbidden') throw new Error('Solo puedes cambiar tus propios objetos.');
+        if (result === 'applied' && !localOnly) this.shareBoardCommit(document);
+        this.notify(); resolve(true);
+      } catch (error) { reject(error); }
+    }); });
+  }
+  private async receiveBoardCommit(link: Link, document: SignedBoardCommit): Promise<void> {
+    const author = link.identity!;
+    const moderator = boardOwner(document.boardId) === author.fingerprint;
+    if (!this.sameRoom(author.fingerprint, document.boardId) || document.documents.some(d => d.stroke.author !== author.fingerprint && !moderator)) throw new Error('Unauthorized board commit');
+    const { signature, ...unsigned } = document;
+    if (!await verify(author, 'board-commit', { sessionId: this.sessionId, epoch: this.epoch, ...unsigned }, signature)) throw new Error('Invalid board commit signature');
+    for (const d of document.documents) if (!await verify(author, 'board', { sessionId: this.sessionId, epoch: this.epoch, stroke: d.stroke }, d.signature)) throw new Error('Invalid object signature');
+    if (!this.active(link) || !this.sameRoom(author.fingerprint, document.boardId)) return;
+    const result = this.board.applyBatch(document.documents);
+    if (result === 'forbidden') throw new Error('Another author owns this object');
+    if (result === 'full') this.setError('La pizarra alcanzó su capacidad; no se aplicó la selección.');
+    else if (result === 'applied') this.notify();
+  }
+  private shareBoardCommit(document: SignedBoardCommit): void {
+    let pending = false;
+    for (const member of this.members.values()) if (member.identity.fingerprint !== this.id && this.sameRoom(member.identity.fingerprint, document.boardId)) {
+      const link = this.linkFor(member.identity.fingerprint); if (!link || !this.send(link, { type: 'board.commit', document })) pending = true;
+    }
+    if (pending && this.boardCommits.size < LIMITS.queueMessages) this.boardCommits.set(document.id, document); else this.boardCommits.delete(document.id);
   }
   private async receiveStroke(link: Link, document: SignedStroke, sync: boolean): Promise<void> {
     const stroke = document.stroke; const author = this.members.get(stroke.author);
-    if (!this.sameRoom(link.identity!.fingerprint, stroke.boardId) || (!sync && stroke.author !== link.identity!.fingerprint)) throw new Error('Unauthorized board author or house');
+    const owner = boardOwner(stroke.boardId);
+    if (!this.sameRoom(link.identity!.fingerprint, stroke.boardId) || (!sync && stroke.author !== link.identity!.fingerprint && owner !== link.identity!.fingerprint)) throw new Error('Unauthorized board author or house');
     // Departed authors' already-rendered work remains local, but is not newly imported without roster authorization.
     if (!author) return;
-    if (!await verify(author.identity, 'board', { sessionId: this.sessionId, epoch: this.epoch, stroke }, document.signature)) throw new Error('Invalid board signature');
+    // Signed by its author, or by the owner of the house whose board it is (the owner may edit any layer there).
+    const ownerIdentity = owner ? this.members.get(owner)?.identity : undefined;
+    const scope = { sessionId: this.sessionId, epoch: this.epoch, stroke };
+    if (!await verify(author.identity, 'board', scope, document.signature) && !(ownerIdentity && await verify(ownerIdentity, 'board', scope, document.signature))) throw new Error('Invalid board signature');
     if (!this.active(link) || !this.sameRoom(link.identity!.fingerprint, stroke.boardId)) return;
     const result = this.board.apply(document);
     if (result === 'forbidden') throw new Error('Another author owns this stroke');
@@ -576,7 +743,7 @@ export class VillageClient implements VillageActions {
     else if (result === 'applied') this.notify();
   }
   private shareStroke(document: SignedStroke): void {
-    const recipients = [...this.members.values()].filter(member => member.identity.fingerprint !== this.id && member.connected && member.houseId === document.stroke.boardId);
+    const recipients = [...this.members.values()].filter(member => member.identity.fingerprint !== this.id && this.sameRoom(member.identity.fingerprint, document.stroke.boardId));
     let pending = this.phase !== 'JOINED';
     for (const recipient of recipients) { const link = this.linkFor(recipient.identity.fingerprint); if (!link || !this.send(link, { type: 'board.stroke', document })) pending = true; }
     const key = `${document.stroke.boardId}/${document.stroke.id}`;
@@ -601,54 +768,81 @@ export class VillageClient implements VillageActions {
     this.send(link, { type: 'media.private', with: this.privateWith });
   }
 
-  /** The partner of `id` in a private call, only when both chose each other. */
-  private partnerOf(id: string): string | null {
-    const wants = (who: string) => who === this.id ? this.privateWith : this.privateOf.get(who) ?? null;
-    const partner = wants(id);
-    if (!partner || partner === id) return null;
-    const partnerMember = this.members.get(partner);
-    if (!partnerMember?.connected || !this.members.get(id)?.connected) return null;
-    return wants(partner) === id ? partner : null;
+  private publishWorkspaces(): void {
+    if(!this.isHost)return;
+    this.workspace.reconcile([...this.members.keys()]);
+    this.workspaceState=this.workspace.view(this.id);
+    for(const link of this.links)if(link.approved&&!link.closed&&link.identity)this.send(link,{type:'workspace.state',workspace:this.workspace.view(link.identity.fingerprint)});
   }
-
-  requestPrivate(identityId: string | null): void {
-    if (this.phase !== 'JOINED') return;
-    if (identityId !== null && (identityId === this.id || !this.members.get(identityId)?.connected)) {
-      this.setError('Esa persona ya no está en la aldea.'); return;
+  private applyWorkspace(who:string,command:WorkspaceCommand):void {
+    try{this.workspace.apply(who,command);this.rosterChanged();}
+    catch(error){const message=error instanceof Error?error.message:'Error';if(who===this.id)this.setError(message);else{const link=this.linkFor(who);if(link)this.send(link,{type:'voice.error',message:message.slice(0,200)});}}
+  }
+  workspaceCommand(command:WorkspaceCommand):void {
+    if(command.action==='enter'&&command.owner===this.id&&command.space?.roomId){const seed=this.workspaceStorage.get(this.id,command.space);if(seed)command={...command,seed};}
+    if(this.phase!=='JOINED'){
+      try{this.workspace.apply(this.id,command);this.notify();}catch(error){this.setError(error instanceof Error?error.message:'Error');}return;
     }
-    if (this.privateWith === identityId) return;
-    this.privateWith = identityId;
-    for (const link of this.links) if (link.approved && link.authenticated && !link.closed) this.send(link, { type: 'media.private', with: identityId });
-    this.syncMedia(); this.notify();
+    if(this.isHost)this.applyWorkspace(this.id,command);else this.sendHost({type:'workspace.command',command});
+  }
+  private privateCallView(): NetworkView['privateCall'] {
+    const channel = this.voiceState.selected;
+    const partner = channel?.kind === 'call' ? channel.members.find(id => id !== this.id) ?? null : null;
+    return { with: partner ?? this.voiceState.outgoing.find(i => i.kind === 'call')?.to ?? null, active: !!partner,
+      incoming: this.voiceState.invitations.filter(i => i.kind === 'call').map(i => i.from) };
+  }
+  private publishVoice(): void {
+    if (!this.isHost) return;
+    const online = [...this.members.values()].filter(m => m.connected).map(m => m.identity.fingerprint);
+    this.voiceHub.prune(online);
+    this.voiceState = this.voiceHub.view(this.id);
+    for (const link of this.links) if (link.approved && !link.closed && link.identity) this.send(link, { type: 'voice.state', voice: this.voiceHub.view(link.identity.fingerprint) });
+  }
+  private applyVoice(who: string, command: VoiceCommand): void {
+    try {
+      if (command.action === 'game.end' && who !== this.id) return;
+      this.voiceHub.apply(who, command, [...this.members.values()].filter(m => m.connected).map(m => m.identity.fingerprint), 'village');
+      this.publishVoice(); this.syncMedia(); this.notify();
+    } catch (error) { const message = error instanceof Error ? error.message : 'Error'; if (who === this.id) this.setError(message); else { const link = this.linkFor(who); if (link) this.send(link, { type: 'voice.error', message: message.slice(0, 200) }); } }
+  }
+  voiceCommand(command: VoiceCommand): void {
+    if (this.phase !== 'JOINED') return;
+    if (this.isHost) this.applyVoice(this.id, command);
+    else this.sendHost({ type: 'voice.command', command });
+  }
+  requestPrivate(identityId: string | null): void {
+    if (identityId && (identityId === this.id || !this.members.get(identityId)?.connected)) { this.setError('Esa persona ya no está en la aldea.'); return; }
+    this.voiceCommand({ action: 'call', target: identityId });
   }
 
   private syncMedia(): void {
+    this.syncCamera();
     const self = this.members.get(this.id);
     if (this.phase !== 'JOINED' || !self?.connected || this.leaving) { this.media.setContext(null); return; }
 
     // Board sync follows the house you are standing in, independent of voice.
     for (const link of this.links) {
       const peer = link.identity ? this.members.get(link.identity.fingerprint) : undefined;
-      const together = !!self.houseId && !!peer?.connected && peer.houseId === self.houseId;
-      if (together && self.houseId && link.syncRoom !== self.houseId) {
-        link.syncRoom = self.houseId; link.syncExpected = 0;
-        this.send(link, { type: 'board.sync.request', boardId: self.houseId, cursor: 0 });
+      const boardId = this.selectedBoard ?? self.houseId;
+      const together = !!boardId && !!peer?.connected && this.sameRoom(peer.identity.fingerprint, boardId);
+      if (together && boardId && link.syncRoom !== boardId) {
+        link.syncRoom = boardId; link.syncExpected = 0;
+        this.send(link, { type: 'board.sync.request', boardId, cursor: 0 });
       } else if (!together) { link.syncRoom = undefined; link.syncExpected = undefined; link.syncExport = undefined; }
     }
 
-    // Voice: a mutual private call wins; otherwise you talk to everyone in the
-    // same place (the open village, or the same house) who is not in a call.
-    const partner = this.partnerOf(this.id);
+    const channel = this.voiceState.selected;
     let room: string; let roomName: string; let audience: string[];
-    if (partner) {
-      room = `pair:${[this.id, partner].sort().join(':')}`;
-      roomName = `Privado con ${this.members.get(partner)?.identity.displayName ?? 'alguien'}`;
-      audience = [partner];
+    if (channel) {
+      room = `channel:${channel.id}`;
+      const partner = channel.members.find(id => id !== this.id);
+      roomName = channel.kind === 'call' ? t('Privado con {name}', { name: this.members.get(partner ?? '')?.identity.displayName ?? t('alguien') }) : channel.kind === 'game' ? t(channel.game === 'werewolves' ? 'Hombres lobo' : channel.game === 'gartic' ? 'Gartic Phone' : 'Quiz de estudio') : channel.name;
+      audience = channel.members.filter(id => id !== this.id);
     } else {
-      room = self.houseId ? `house:${self.houseId}` : 'village';
-      roomName = self.houseId ? `Casa: ${this.houses.get(self.houseId)?.house.name ?? 'Casa'}` : 'La aldea';
+      room = self.houseId ? `house:${self.houseId}${self.position.space ? `:space:${spaceKey(self.position.space)}` : ''}` : areaOf(self.position) === 'residential' ? 'village' : `area:${areaOf(self.position)}`;
+      roomName = self.houseId ? t('Casa: {name}', { name: this.houses.get(self.houseId)?.house.name ?? t('Casa') }) : t(AREA_NAMES[areaOf(self.position)]);
       audience = [...this.members.values()]
-        .filter(member => member.identity.fingerprint !== this.id && member.connected && member.houseId === self.houseId && !this.partnerOf(member.identity.fingerprint))
+        .filter(member => member.identity.fingerprint !== this.id && isInScene(member, areaOf(self.position), self.houseId, self.position.space) && !this.voiceState.busy.includes(member.identity.fingerprint))
         .map(member => member.identity.fingerprint);
     }
     const peers: MediaPeer[] = [];
@@ -658,6 +852,39 @@ export class VillageClient implements VillageActions {
       peers.push({ identityId: id, endpoint: member.endpoint, sendToken: link.sendToken, receiveToken: link.receiveToken });
     }
     this.media.setContext({ sessionId: this.sessionId!, epoch: this.epoch, identityId: this.id, room, roomName, peers });
+  }
+  async updateAppearance(raw: AvatarAppearance): Promise<void> {
+    this.ownAppearance = appearanceSchema.parse(raw);
+    const self = this.members.get(this.id); if (self) self.appearance = this.ownAppearance;
+    if (this.phase === 'JOINED') {
+      if (this.isHost) this.rosterChanged();
+      else this.sendHost({ type: 'avatar.update', appearance: this.ownAppearance });
+    }
+    this.notify();
+  }
+  setCameraActivity(activity: CameraActivity | null): void {
+    if (activity === this.cameraActivity) return;
+    this.cameraActivity = activity;
+    this.syncCamera();
+    this.sendApp('camera', null, JSON.stringify({ game: activity, request: true }));
+    this.notify();
+  }
+  toggleGameCamera(): Promise<void> { return this.camera.toggle(); }
+  private syncCamera(): void {
+    const game = this.cameraActivity;
+    if (!game || this.leaving || this.disposed) { this.camera.setContext(null); return; }
+    const self = this.members.get(this.id);
+    const online = this.phase === 'JOINED' && !!self?.connected;
+    const scene = self?.houseId ? `house:${self.houseId}` : self && areaOf(self.position) !== 'residential' ? `area:${areaOf(self.position)}` : 'village';
+    const peers: CameraPeer[] = [];
+    if (online) for (const member of this.members.values()) {
+      const id = member.identity.fingerprint; const link = this.linkFor(id);
+      if (id === this.id || !link?.sendToken || !isInScene(member, areaOf(self!.position), self!.houseId)) continue;
+      peers.push({ identityId: id, endpoint: member.endpoint, receiveToken: link.receiveToken, sendToken: link.sendToken, watching: this.cameraActivities.get(id) === game });
+    }
+    for (const id of this.cameraActivities.keys()) if (!this.members.get(id)?.connected) this.cameraActivities.delete(id);
+    this.camera.setContext({ sessionId: online ? this.sessionId! : 'local', epoch: online ? this.epoch : 1,
+      identityId: this.id, room: `${scene}:game:${game}`, roomName: game, peers });
   }
   toggleMicrophone(): Promise<void> { return this.media.toggleMicrophone(); }
   setMuted(value: boolean): void { this.media.setMuted(value); }
@@ -680,7 +907,7 @@ export class VillageClient implements VillageActions {
         this.rosterChanged();
       } else if (id === this.hostId) {
         this.hostDeadline ??= this.clock.now() + LIMITS.hostGraceMs;
-        this.phase = 'RECONNECTING'; this.media.suspend();
+        this.phase = 'RECONNECTING'; this.media.suspend(); this.camera.suspend();
         this.error = 'Se perdió el anfitrión. Se conserva la sesión durante 60 segundos y se exige autenticación al volver.';
       }
     } else if (!this.isHost && link.initiator && link.intent === 'join' && this.phase !== 'DENIED') this.finish('NETWORK_FAILED', 'La conexión no se autenticó o la invitación fue revocada.');
@@ -696,7 +923,7 @@ export class VillageClient implements VillageActions {
     if (this.privateWith === identityId) this.privateWith = null;
   }
   private removeLocalMember(identityId: string): void {
-    this.forgetPrivate(identityId);
+    this.forgetPrivate(identityId); this.workspace.disconnect(identityId);
     const link = this.linkFor(identityId); if (link) this.closeLink(link, false);
     this.houses.delete(identityId); this.memberDeadlines.delete(identityId);
     if (identityId !== this.id) this.board.removeBoard(identityId);
@@ -705,7 +932,7 @@ export class VillageClient implements VillageActions {
   private removeMember(identityId: string): void {
     if (!this.members.has(identityId) || identityId === this.id) return;
     this.members.delete(identityId); this.houses.delete(identityId); this.memberDeadlines.delete(identityId);
-    this.forgetPrivate(identityId);
+    this.forgetPrivate(identityId); this.workspace.disconnect(identityId);
     for (const member of this.members.values()) if (member.houseId === identityId) member.houseId = null;
     for (const [id, visit] of this.visits) if (visit.houseId === identityId || visit.visitorId === identityId) this.visits.delete(id);
     this.board.removeBoard(identityId); this.rosterChanged();
@@ -726,6 +953,7 @@ export class VillageClient implements VillageActions {
       if (!this.isHost && this.phase === 'RECONNECTING' && this.invite && now - this.lastReconnect >= 2_000) { this.lastReconnect = now; this.connect(this.invite.endpoint, 'resume', this.hostId!); }
       if (this.phase === 'JOINED') {
         this.reconcileMesh();
+        const commitRetry = this.boardCommits.values().next().value; if (commitRetry) this.shareBoardCommit(commitRetry);
         const retry = this.boardRetries.values().next().value; if (retry) this.shareStroke(retry);
       }
       if (this.hostDeadline !== null) this.notify();
@@ -735,7 +963,7 @@ export class VillageClient implements VillageActions {
   }
   async leave(): Promise<void> {
     if (this.leaving) return;
-    this.leaving = true; this.media.suspend();
+    this.leaving = true; this.media.suspend(); this.camera.suspend();
     if (this.isHost && this.phase === 'JOINED') {
       this.broadcast({ type: 'session.closed' });
       await new Promise<void>(resolve => this.clock.setTimeout(resolve, 100));
@@ -752,8 +980,11 @@ export class VillageClient implements VillageActions {
   }
   private finish(phase: SessionPhase, error: string | null): void { this.reset(); this.phase = phase; this.error = error; this.notify(); }
   private reset(): void {
-    this.generation++; this.leaving = true; this.media.suspend(); this.leaveResolve?.();
-    this.privateWith = null; this.privateOf.clear();
+    this.generation++; this.leaving = true; this.media.suspend(); this.camera.suspend(); this.leaveResolve?.();
+    for(const id of this.members.keys())this.workspace.disconnect(id);
+    this.workspaceState=emptyWorkspace();this.offlinePosition={x:384,y:344,direction:'up',moving:false};
+    this.voiceHub = new VoiceHub(); this.voiceState = emptyVoice();
+    this.privateWith = null; this.privateOf.clear(); this.cameraActivity = null; this.cameraActivities.clear();
     if (this.tickTimer) this.clock.clearTimeout(this.tickTimer);
     if (this.moveTimer) this.clock.clearTimeout(this.moveTimer);
     this.tickTimer = undefined; this.moveTimer = undefined; this.pendingPosition = undefined;
@@ -766,5 +997,5 @@ export class VillageClient implements VillageActions {
     this.rosterRevision = 0; this.hostDeadline = null; this.error = null; this.leaveRequest = undefined; this.leaveResolve = undefined;
     this.leaving = false;
   }
-  dispose(): void { if (this.disposed) return; this.reset(); this.media.dispose(); this.disposed = true; this.listeners.clear(); }
+  dispose(): void { if (this.disposed) return; this.reset(); this.media.dispose(); this.camera.dispose(); this.disposed = true; this.listeners.clear(); }
 }

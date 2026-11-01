@@ -1,14 +1,14 @@
-import type { BoardPoint, BoardStroke } from '../protocol/types';
+import type { BoardPoint, BoardStroke, BoardTextStyle } from '../protocol/types';
 import { COLORS, text } from '../ui/art';
 import { mathImage, mathReady, rasterStep, toTex, type MathImage } from './math';
 import { DEFAULT_CAMERA, strokesBounds, type BoardCamera, type BoardRect } from './model';
 
-export interface BoardDraft { points: readonly BoardPoint[]; tool: BoardStroke['tool']; color: string; width: number; text?: string }
+export interface BoardDraft { points: readonly BoardPoint[]; tool: BoardStroke['tool']; color: string; width: number; text?: string; textStyle?: BoardTextStyle }
 /** Anything drawable: a stored stroke or an in-progress draft. */
-type Drawable = Pick<BoardDraft, 'points' | 'tool' | 'color' | 'width' | 'text'>;
+type Drawable = Pick<BoardDraft, 'points' | 'tool' | 'color' | 'width' | 'text' | 'textStyle'>;
 
-const PAPER = '#fffdf5';
-const GRID = '#e3e6d4';
+const PAPER = '#ffffff';
+const GRID = '#eceef1';
 const FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 /** Width doubles as the text size for notes: Fino 16px, Medio 22px, Grueso 34px. */
@@ -45,13 +45,30 @@ function measureContext(): CanvasRenderingContext2D | null {
  * ordinary text. Math that is still loading or failed to parse is measured as
  * its source so the box never collapses.
  */
-function layout(stroke: Pick<BoardStroke, 'text' | 'width' | 'color'>, ctx?: CanvasRenderingContext2D | null): Layout {
-  const size = textFontPx(stroke.width);
+function layout(stroke: Pick<BoardStroke, 'text' | 'width' | 'color' | 'textStyle'>, ctx?: CanvasRenderingContext2D | null): Layout {
+  const size = stroke.textStyle?.fontSize ?? textFontPx(stroke.width);
   const lineH = Math.round(size * 1.3);
   const c = ctx ?? measureContext();
-  if (c) c.font = `600 ${size}px ${FONT}`;
+  if (c) c.font = noteFont(stroke.textStyle, size);
   const lines: Line[] = [];
-  for (const raw of (stroke.text ?? '').split('\n')) {
+  const rawLines = (stroke.text ?? '').split('\n');
+  const wrapped: string[] = [];
+  for (const line of rawLines) {
+    if (!stroke.textStyle?.boxWidth || toTex(line) || !c) { wrapped.push(line); continue; }
+    // Wrap at spaces; only a single word wider than the box is split by characters.
+    const limit = stroke.textStyle.boxWidth; let current = '';
+    for (const word of line.split(/(\s+)/)) {
+      if (!word) continue;
+      if (current && c.measureText(current + word).width > limit) { wrapped.push(current.trimEnd()); current = /^\s+$/.test(word) ? '' : word; }
+      else current += word;
+      while (c.measureText(current).width > limit && current.length > 1) {
+        let cut = current.length - 1; while (cut > 1 && c.measureText(current.slice(0, cut)).width > limit) cut--;
+        wrapped.push(current.slice(0, cut)); current = current.slice(cut);
+      }
+    }
+    wrapped.push(current);
+  }
+  for (const raw of wrapped) {
     const tex = toTex(raw);
     const textW = c ? c.measureText(raw).width : raw.length * size * 0.55;
     if (tex) {
@@ -62,7 +79,7 @@ function layout(stroke: Pick<BoardStroke, 'text' | 'width' | 'color'>, ctx?: Can
       lines.push({ kind: 'text', value: raw, w: textW, h: lineH });
     }
   }
-  return { lines, w: Math.max(8, ...lines.map((line) => line.w)), h: Math.max(lineH, lines.reduce((sum, line) => sum + line.h, 0)) };
+  return { lines, w: stroke.textStyle?.boxWidth ?? Math.max(8, ...lines.map((line) => line.w)), h: Math.max(lineH, lines.reduce((sum, line) => sum + line.h, 0)) };
 }
 
 /** World-space box of a text note, for the eraser and for export bounds. */
@@ -72,24 +89,32 @@ export function textBox(stroke: BoardStroke): BoardRect | null {
   return { x: stroke.points[0].x, y: stroke.points[0].y, w, h };
 }
 
+const NOTE_FONTS = { sans: FONT, serif: 'Georgia, serif', mono: 'ui-monospace, monospace' };
+function noteFont(style: BoardTextStyle | undefined, size: number): string { return `${style?.italic ? 'italic ' : ''}${style?.bold === false ? 400 : 600} ${size}px ${NOTE_FONTS[style?.fontFamily ?? 'sans']}`; }
+
 function drawNote(ctx: CanvasRenderingContext2D, stroke: Drawable): void {
   const anchor = stroke.points[0];
   if (!anchor) return;
-  const size = textFontPx(stroke.width);
+  const size = stroke.textStyle?.fontSize ?? textFontPx(stroke.width);
   const box = layout(stroke, ctx);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   let y = anchor.y;
   for (const line of box.lines) {
+    const x = anchor.x + (stroke.textStyle?.align === 'center' ? (box.w-line.w)/2 : stroke.textStyle?.align === 'right' ? box.w-line.w : 0);
     if (line.kind === 'math' && line.image && line.image !== 'error') {
-      ctx.drawImage(line.image.image, anchor.x, y + (line.h - line.image.height) / 2, line.image.width, line.image.height);
+      ctx.drawImage(line.image.image, x, y + (line.h - line.image.height) / 2, line.image.width, line.image.height);
     } else {
       const failed = line.kind === 'math' && line.image === 'error';
-      ctx.font = `${failed ? 500 : 600} ${size}px ${FONT}`;
+      ctx.font = noteFont(stroke.textStyle, size);
       // Loading math shows its source in dark ink; broken math shows it in red so
       // the author can see what to fix.
       ctx.fillStyle = line.kind === 'math' ? (failed ? '#c0473a' : 'rgba(49,95,81,0.82)') : stroke.color;
-      ctx.fillText(line.kind === 'math' ? line.source : line.value, anchor.x, y + (line.h - size) / 2);
+      const value = line.kind === 'math' ? line.source : line.value, top = y + (line.h - size) / 2;
+      ctx.fillText(value, x, top);
+      if (stroke.textStyle?.underline && line.kind === 'text' && value.trim()) {
+        ctx.fillRect(x, top + size * 1.02, ctx.measureText(value).width, Math.max(1, size / 14));
+      }
     }
     y += line.h;
   }
@@ -114,6 +139,11 @@ function pathStroke(ctx: CanvasRenderingContext2D, stroke: Drawable): void {
   } else if (stroke.tool === 'line') {
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
+  } else if (stroke.tool === 'circle') {
+    ctx.ellipse((start.x+end.x)/2,(start.y+end.y)/2,Math.max(1,Math.abs(end.x-start.x)/2),Math.max(1,Math.abs(end.y-start.y)/2),0,0,Math.PI*2);
+  } else if (stroke.tool === 'arrow') {
+    ctx.moveTo(start.x,start.y); ctx.lineTo(end.x,end.y); const a=Math.atan2(end.y-start.y,end.x-start.x), h=Math.max(10,stroke.width*4);
+    ctx.moveTo(end.x-h*Math.cos(a-.5),end.y-h*Math.sin(a-.5));ctx.lineTo(end.x,end.y);ctx.lineTo(end.x-h*Math.cos(a+.5),end.y-h*Math.sin(a+.5));
   } else {
     ctx.rect(Math.min(start.x, end.x), Math.min(start.y, end.y), Math.abs(start.x - end.x), Math.abs(start.y - end.y));
   }
@@ -184,7 +214,7 @@ export function drawBoard(
 export async function renderBoardForExport(strokes: readonly BoardStroke[]): Promise<HTMLCanvasElement> {
   for (const stroke of strokes) {
     if (stroke.tool !== 'text' || stroke.deleted) continue;
-    const size = Math.round(textFontPx(stroke.width) * 1.15);
+    const size = Math.round((stroke.textStyle?.fontSize ?? textFontPx(stroke.width)) * 1.15);
     for (const raw of (stroke.text ?? '').split('\n')) {
       const tex = toTex(raw);
       if (tex) await mathReady(tex, size, stroke.color, isDisplayMath(raw), rasterStep(2));

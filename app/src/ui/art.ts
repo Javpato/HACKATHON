@@ -1,3 +1,4 @@
+import { defaultText } from '../i18n';
 import type { Position, PublicIdentity } from '../protocol/types';
 
 /**
@@ -21,7 +22,7 @@ export const COLORS = {
   sand: '#e0c08a', coral: '#c25f3c', peach: '#f6b265', shadow: '#24402f',
 };
 
-import { getAvatarCustomization } from '../assets/custom-assets';
+import { getAvatarCustomization, type AvatarCustomization } from '../assets/custom-assets';
 
 export const UNIT = 1;
 
@@ -156,6 +157,7 @@ interface CharacterAnim {
   lastSeen: number;
   facing: Position['direction'];
   turn: number;
+  sceneId?: string;
 }
 
 const anims = new Map<string, CharacterAnim>();
@@ -196,9 +198,10 @@ function animFor(id: string, position: Position): CharacterAnim {
  * remote peers need because their updates arrive at roughly 12 Hz. The local
  * character passes smooth=false so input stays immediate.
  */
-export function trackCharacter(id: string, position: Position, dt: number, smooth: boolean): { x: number; y: number } {
+export function trackCharacter(id: string, position: Position, dt: number, smooth: boolean, sceneId = 'residential'): { x: number; y: number } {
   const state = animFor(id, position);
   state.lastSeen = frameClock;
+  if (state.sceneId !== sceneId) { state.renderX = position.x; state.renderY = position.y; state.sceneId = sceneId; }
 
   if (smooth) {
     const blend = 1 - Math.pow(0.0015, dt);
@@ -274,16 +277,17 @@ export function shade(hex: string, amount: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
-export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, identity: PublicIdentity, position: Position, isOwn = false): void {
+export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, identity: PublicIdentity, position: Position, isOwn = false, options?: { appearance?: AvatarCustomization; preview?: boolean }): void {
   const id = identity.fingerprint || identity.displayName;
-  const state = anims.get(id);
-  const custom = isOwn ? getAvatarCustomization() : null;
+  const state = options?.preview ? undefined : anims.get(id);
+  const custom = options?.appearance ?? (isOwn ? getAvatarCustomization() : null);
   const tone = hash01(id + 'skin');
   const skin = custom?.skinTone || SKIN[Math.floor(tone * SKIN.length) % SKIN.length];
   const hair = custom?.hairColor || HAIR[Math.floor(hash01(id + 'hair') * HAIR.length) % HAIR.length];
   const hairStyle = custom?.hairStyle || 'short';
+  const feminine = custom?.body === 'feminine';
   const accessory = custom?.accessory || 'none';
-  const shirt = identity.color || COLORS.coral;
+  const shirt = custom?.outfitColor || identity.color || COLORS.coral;
   const shirtLit = shade(shirt, 26);
   const shirtDark = shade(shirt, -42);
 
@@ -299,6 +303,8 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   const bob = moving ? -Math.abs(Math.sin(walk)) * 2 : breath;
   const squash = moving ? Math.abs(Math.cos(walk)) * 0.8 : 0;
   const facing = position.direction;
+  const side=facing==='left'||facing==='right';
+  const lead=facing==='right'?1:-1;
 
   const baseY = Math.round(y);
   contactShadow(ctx, Math.round(x), baseY + 5, 10 + squash, 0.32);
@@ -309,30 +315,61 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   // a glance. Presentation only: collision and movement are untouched.
   ctx.scale(1.16, 1.16);
 
+  const pants = custom?.pantsColor || '#2c4238';
   // Legs swing in opposition; when idle they stand together.
   const swing = moving ? Math.round(stride * 2.4) : 0;
   if (facing === 'left' || facing === 'right') {
     const lead = facing === 'right' ? 1 : -1;
-    fill(ctx, '#2c4238', -4 + swing * lead, 0, 4, 8 - Math.abs(swing) / 2);
-    fill(ctx, '#38564d', 0 - swing * lead, 0, 4, 8 - Math.abs(swing) / 2);
+    fill(ctx, pants, -4 + swing * lead, 0, 4, 8 - Math.abs(swing) / 2);
+    fill(ctx, shade(pants, 18), 0 - swing * lead, 0, 4, 8 - Math.abs(swing) / 2);
   } else {
-    fill(ctx, '#2c4238', -5, 0, 4, 8 - Math.abs(swing));
-    fill(ctx, '#38564d', 1, 0, 4, 8 - Math.abs(swing));
+    fill(ctx, pants, -5, 0, 4, 8 - Math.abs(swing));
+    fill(ctx, shade(pants, 18), 1, 0, 4, 8 - Math.abs(swing));
   }
 
   // Torso with a lit top-left face and a shaded bottom-right edge.
   const torsoY = -15 - Math.round(squash);
-  fill(ctx, shirtDark, -8, torsoY, 16, 16);
-  fill(ctx, shirt, -8, torsoY, 14, 14);
-  fill(ctx, shirtLit, -8, torsoY, 10, 4);
+  if(side){
+    // A profile torso has narrow shoulders, a waist, and a chest on the facing edge.
+    fill(ctx,shirtDark,-5,torsoY,10,16);
+    fill(ctx,shirt,-5,torsoY,feminine?8:9,14);
+    fill(ctx,shirtLit,-5,torsoY,7,3);
+    fill(ctx,shirtDark,lead>0?4:-6,torsoY+4,2,5);
+    if(feminine){fill(ctx,shirtDark,-5,torsoY+8,2,4);fill(ctx,shirt, -5,torsoY+12,9,3);}
+  } else if (feminine) {
+    // Narrower shoulders, a waist and hips.
+    fill(ctx, shirtDark, -7, torsoY, 14, 7);
+    fill(ctx, shirtDark, -6, torsoY + 6, 12, 5);
+    fill(ctx, shirtDark, -7, torsoY + 10, 14, 6);
+    fill(ctx, shirt, -7, torsoY, 12, 6);
+    fill(ctx, shirt, -6, torsoY + 6, 10, 4);
+    fill(ctx, shirt, -7, torsoY + 10, 12, 4);
+    fill(ctx, shirtLit, -7, torsoY, 9, 3);
+  } else {
+    fill(ctx, shirtDark, -8, torsoY, 16, 16);
+    fill(ctx, shirt, -8, torsoY, 14, 14);
+    fill(ctx, shirtLit, -8, torsoY, 10, 4);
+  }
 
   // Arms track the opposite phase of the legs.
-  if (facing === 'left' || facing === 'right') {
-    const lead = facing === 'right' ? 1 : -1;
-    fill(ctx, shirtDark, (facing === 'right' ? 5 : -9), torsoY + 3 - swing * lead, 4, 9);
+  if (side) {
+    fill(ctx,shade(shirt,-50),-2,torsoY+3+swing*lead,3,9);
+  } else if (feminine) {
+    fill(ctx, shirtDark, -10, torsoY + 3 + swing, 3, 9);
+    fill(ctx, shirtDark, 7, torsoY + 3 - swing, 3, 9);
   } else {
     fill(ctx, shirtDark, -11, torsoY + 3 + swing, 4, 9);
     fill(ctx, shirtDark, 7, torsoY + 3 - swing, 4, 9);
+  }
+
+  if (custom) drawClothing(ctx, custom, facing, torsoY, swing, shirt);
+  if(side){
+    const sleeve=custom?.jacket&&custom.jacket!=='none'?custom.jacketColor:shirt;
+    const armY=torsoY+3-swing*lead,armX=-2+Math.round(swing*.4)*lead;
+    fill(ctx,shade(sleeve,-20),armX,armY,4,8);fill(ctx,shade(sleeve,12),armX,armY,2,6);
+    fill(ctx,skin,armX,armY+8,3,3);
+    // Feet point along the stride, rather than across the viewer.
+    fill(ctx,shade(pants,-25),-3+swing*lead+(lead>0?0:-2),6-Math.abs(swing)/2,6,2);
   }
 
   // Head, hair and a simple face.
@@ -340,11 +377,30 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   fill(ctx, shade(skin, -40), -7, headY, 14, 12);
   fill(ctx, skin, -7, headY, 12, 11);
   fill(ctx, shade(skin, 18), -7, headY + 2, 4, 5);
+  const longSides = hairStyle === 'long' || (feminine && hairStyle !== 'ponytail' && hairStyle !== 'bun' && hairStyle !== 'spiky');
+  // Feminine long hair falls past the shoulders.
+  const sideHair = longSides ? (feminine ? 17 : 13) : 9;
+  if (hairStyle === 'bun') {
+    fill(ctx, hair, -3, headY - 7, 6, 5);
+    fill(ctx, shade(hair, 20), -2, headY - 7, 3, 2);
+  }
   if (facing === 'up') {
     // Facing away: the back of the head is all hair.
-    fill(ctx, hair, -7, headY - 2, 14, hairStyle === 'long' ? 15 : 12);
+    fill(ctx, hair, -7, headY - 2, 14, longSides ? (feminine ? 19 : 15) : 12);
     fill(ctx, shade(hair, 18), -7, headY - 2, 14, 3);
+    if (hairStyle === 'ponytail') {
+      fill(ctx, '#c9606a', -1, headY + 8, 3, 2);
+      fill(ctx, hair, -2, headY + 10, 5, 7);
+      fill(ctx, shade(hair, -18), 1, headY + 11, 2, 6);
+    }
   } else {
+    if (hairStyle === 'ponytail') {
+      // The tail swings out behind the head.
+      const tx = facing === 'left' ? 6 : facing === 'right' ? -9 : 6;
+      fill(ctx, hair, tx, headY, 3, facing === 'down' ? 8 : 11);
+      fill(ctx, shade(hair, -18), tx + 1, headY + 3, 2, facing === 'down' ? 5 : 8);
+      if (facing !== 'down') fill(ctx, '#c9606a', tx, headY, 3, 2);
+    }
     fill(ctx, hair, -8, headY - 3, 15, 6);
     fill(ctx, shade(hair, 16), -8, headY - 3, 15, 2);
     if (hairStyle === 'spiky') {
@@ -361,37 +417,52 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
       fill(ctx, '#f4efdd', -2, headY - 7, 4, 2);
     }
     if (facing === 'down') {
-      const sideLen = hairStyle === 'long' ? 13 : 9;
+      const sideLen = sideHair;
       fill(ctx, hair, -8, headY - 3, 3, sideLen);
       fill(ctx, hair, 4, headY - 3, 3, sideLen);
+      if (feminine && hairStyle !== 'spiky') fill(ctx, hair, -7, headY, 7, 2);
       fill(ctx, '#2b2b26', -4, headY + 5, 2, 2);
       fill(ctx, '#2b2b26', 2, headY + 5, 2, 2);
-      fill(ctx, shade(skin, -30), -1, headY + 8, 3, 1);
+      if (feminine) {
+        // Lashes, blush and lips.
+        fill(ctx, '#2b2b26', -5, headY + 4, 1, 1);
+        fill(ctx, '#2b2b26', 4, headY + 4, 1, 1);
+        fill(ctx, '#e8978a', -6, headY + 7, 2, 1);
+        fill(ctx, '#e8978a', 4, headY + 7, 2, 1);
+        fill(ctx, '#c9606a', -1, headY + 8, 3, 1);
+      } else {
+        fill(ctx, shade(skin, -30), -1, headY + 8, 3, 1);
+      }
     } else if (facing === 'left') {
-      fill(ctx, hair, -8, headY - 3, 4, hairStyle === 'long' ? 13 : 10);
+      fill(ctx, hair, -8, headY - 3, 4, longSides ? sideHair : 10);
       fill(ctx, '#2b2b26', -4, headY + 5, 2, 2);
+      if (feminine) { fill(ctx, '#2b2b26', -5, headY + 4, 1, 1); fill(ctx, '#e8978a', -3, headY + 7, 2, 1); }
     } else {
-      fill(ctx, hair, 3, headY - 3, 4, hairStyle === 'long' ? 13 : 10);
+      fill(ctx, hair, 3, headY - 3, 4, longSides ? sideHair : 10);
       fill(ctx, '#2b2b26', 2, headY + 5, 2, 2);
+      if (feminine) { fill(ctx, '#2b2b26', 4, headY + 4, 1, 1); fill(ctx, '#e8978a', 1, headY + 7, 2, 1); }
     }
   }
 
-  // Optional accessories
-  if (accessory === 'glasses' && facing !== 'up') {
-    fill(ctx, '#1e3028', -5, headY + 4, 4, 3);
-    fill(ctx, '#1e3028', 1, headY + 4, 4, 3);
-    fill(ctx, '#9cc8d2', -4, headY + 5, 2, 1);
-    fill(ctx, '#9cc8d2', 2, headY + 5, 2, 1);
-    fill(ctx, '#1e3028', -1, headY + 5, 2, 1);
-  } else if (accessory === 'headphones') {
-    fill(ctx, '#2d4b3e', -9, headY - 4, 18, 2);
-    fill(ctx, '#cf6f3c', -10, headY + 1, 3, 6);
-    fill(ctx, '#cf6f3c', 7, headY + 1, 3, 6);
-  } else if (accessory === 'hat') {
-    fill(ctx, '#5a3e28', -10, headY - 3, 20, 2);
-    fill(ctx, '#7a563a', -7, headY - 7, 14, 4);
-    fill(ctx, '#cf6f3c', -7, headY - 4, 14, 1);
+  // Glasses and headwear are independent layers; both can be worn with a jacket.
+  const eyewear = custom?.eyewear ?? (accessory === 'glasses' ? 'square' : 'none');
+  if (eyewear !== 'none' && facing !== 'up') {
+    const lenses = facing === 'left' ? [-5] : facing === 'right' ? [1] : [-5, 1];
+    for (const lx of lenses) {
+      fill(ctx, '#24332d', lx, headY + 4, 5, 4);
+      fill(ctx, eyewear === 'sunglasses' ? '#243e4b' : '#a1cbd0', lx + 1, headY + 5, 3, 2);
+      if (eyewear === 'round') { fill(ctx, skin, lx, headY + 4, 1, 1); fill(ctx, skin, lx + 4, headY + 7, 1, 1); }
+      if (eyewear !== 'sunglasses') fill(ctx, '#26332c', lx + 2, headY + 5, 1, 1);
+    }
+    if (facing === 'down') fill(ctx, '#24332d', -1, headY + 5, 2, 1);
   }
+  if (accessory === 'headphones') {
+    const headphoneColor=custom?.headphonesColor??'#cf6f3c';
+    fill(ctx, shade(headphoneColor,-45), -9, headY - 4, 18, 2);
+    fill(ctx, headphoneColor, -10, headY + 1, 3, 6); fill(ctx, headphoneColor, 7, headY + 1, 3, 6);
+  }
+  const headwear = custom?.headwear ?? (accessory === 'hat' ? 'explorer' : 'none');
+  drawHeadwear(ctx, headwear, custom?.headwearColor || '#a77b50', facing, headY);
 
   if (isOwn) {
     // A soft arc under the owner instead of a hard selection box.
@@ -403,16 +474,79 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   }
   ctx.restore();
 
-  const name = identity.displayName.slice(0, 18);
+  if (options?.preview) return;
+  const name = defaultText(identity.displayName).slice(0, 18);
   ctx.font = '700 9.5px Inter, ui-sans-serif, system-ui, sans-serif';
   const width = Math.min(145, Math.ceil(ctx.measureText(name).width) + 18);
-  const plateY = baseY - 44;
+  const plateY = baseY - (custom?.headwear && custom.headwear !== 'none' ? 60 : 54);
   plate(ctx, x - width / 2, plateY, width, 15, 'rgba(251,244,226,0.96)', 'rgba(30,55,48,0.55)');
-  fill(ctx, shirt, x - width / 2 + 5, plateY + 5, 5, 5);
+  fill(ctx, identity.color || shirt, x - width / 2 + 5, plateY + 5, 5, 5);
   ctx.textAlign = 'left';
   ctx.fillStyle = COLORS.ink;
   ctx.fillText(name, Math.round(x - width / 2 + 13), plateY + 11);
   ctx.textAlign = 'center';
+}
+
+function drawClothing(ctx: CanvasRenderingContext2D, look: AvatarCustomization, facing: Position['direction'], y: number, swing: number, shirt: string): void {
+  if(facing==='left'||facing==='right'){
+    const lead=facing==='right'?1:-1,edge=lead>0?3:-5;
+    if(look.outfit==='hoodie'){fill(ctx,shade(shirt,-35),lead>0?-6:3,y,3,6);fill(ctx,shade(shirt,-20),edge,y+10,3,3);}
+    else if(look.outfit==='suit'){fill(ctx,'#fff4dc',edge,y+1,2,5);fill(ctx,shade(shirt,28),edge,y+5,2,5);}
+    else if(look.outfit==='overalls'){fill(ctx,look.pantsColor,-3,y+6,6,10);fill(ctx,look.pantsColor,edge,y+1,2,9);fill(ctx,'#e5ba69',edge,y+6,1,2);}
+    else if(look.outfit==='dress'){fill(ctx,shirt,-6,y+10,12,9);fill(ctx,shade(shirt,24),-6,y+17,10,2);fill(ctx,'#edce8a',-5,y+9,10,2);}
+    else if(look.outfit==='sporty')fill(ctx,'#f4eddf',edge,y+3,2,9);
+    if(look.jacket!=='none'){
+      const color=look.jacketColor,length=look.jacket==='coat'?24:16;
+      fill(ctx,shade(color,-20),-5,y,11,length);fill(ctx,color,-5,y,9,length-1);fill(ctx,shade(color,24),-5,y,8,3);
+      fill(ctx,shade(color,-30),edge,y+4,2,length-4);for(let i=7;i<length-2;i+=5)fill(ctx,'#d9b77a',edge,y+i,1,1);
+    }
+    return;
+  }
+  const front = facing !== 'up';
+  if (look.outfit === 'hoodie') {
+    fill(ctx, shade(shirt, -30), -6, y, 12, 5);
+    if (front) { fill(ctx, '#f5ecd8', -3, y + 2, 1, 5); fill(ctx, '#f5ecd8', 2, y + 2, 1, 5); fill(ctx, shade(shirt, -20), -4, y + 10, 8, 3); }
+  } else if (look.outfit === 'suit') {
+    if (front) { fill(ctx, '#fff4dc', -3, y + 1, 6, 10); fill(ctx, '#9f3e37', -1, y + 3, 2, 9); fill(ctx, shade(shirt, 40), -6, y + 1, 3, 5); fill(ctx, shade(shirt, 40), 3, y + 1, 3, 5); }
+    else fill(ctx, shade(shirt, -20), 0, y + 3, 1, 12);
+  } else if (look.outfit === 'overalls') {
+    const denim=look.pantsColor;fill(ctx, denim, -5, y + 7, 10, 9);fill(ctx, denim, -5, y + 1, 3, 10);fill(ctx, denim, 2, y + 1, 3, 10);
+    if (front) { fill(ctx, '#e5ba69', -4, y + 7, 1, 2);fill(ctx, '#e5ba69', 3, y + 7, 1, 2);fill(ctx, shade(denim, 22), -2, y + 10, 4, 3); }
+  } else if (look.outfit === 'dress') {
+    fill(ctx, shirt, -10, y + 10, 20, 7);fill(ctx, shirt, -12, y + 16, 24, 4);fill(ctx, shade(shirt, 25), -10, y + 17, 20, 2);
+    if(front)fill(ctx, '#edce8a', -8, y + 9, 16, 2);
+  } else if (look.outfit === 'sporty') {
+    fill(ctx, '#f4eddf', -7, y + 4, 14, 2);fill(ctx, '#f4eddf', -1, y + 7, 2, 4);
+  }
+  if(look.jacket==='none')return;
+  const jacket=look.jacketColor;const length=look.jacket==='coat'?24:16;
+  if(!front){fill(ctx,jacket,-8,y,16,length);fill(ctx,shade(jacket,20),-8,y,15,3);fill(ctx,shade(jacket,-20),0,y+5,1,length-6);}
+  else {
+    fill(ctx,jacket,-9,y,6,length);fill(ctx,shade(jacket,-15),3,y,6,length);
+    fill(ctx,shade(jacket,26),-6,y+1,3,look.jacket==='cardigan'?9:6);fill(ctx,shade(jacket,26),3,y+1,3,look.jacket==='cardigan'?9:6);
+    if(look.jacket==='coat')fill(ctx,shade(jacket,-25),-3,y+15,6,9);
+    for(let i=7;i<length-1;i+=5)fill(ctx,'#d9b77a',3,y+i,1,1);
+  }
+  fill(ctx,jacket,-11,y+3+swing,4,10);fill(ctx,shade(jacket,-18),7,y+3-swing,4,10);
+}
+
+function drawHeadwear(ctx: CanvasRenderingContext2D, kind: AvatarCustomization['headwear'], color: string, facing: Position['direction'], y: number): void {
+  if(kind==='none')return;
+  const dark=shade(color,-35),light=shade(color,24);
+  if(kind==='cap'){
+    fill(ctx,color,-8,y-7,16,6);fill(ctx,light,-6,y-7,10,2);
+    fill(ctx,dark,facing==='left'?-13:facing==='right'?1:-10,y-2,facing==='down'||facing==='up'?20:12,2);
+  } else if(kind==='beanie') {
+    fill(ctx,color,-8,y-7,16,7);fill(ctx,light,-9,y-1,18,3);fill(ctx,color,-2,y-10,4,3);
+    for(let x=-7;x<8;x+=3)fill(ctx,dark,x,y,1,2);
+  } else if(kind==='explorer') {
+    fill(ctx,dark,-11,y-2,22,2);fill(ctx,color,-7,y-8,14,6);fill(ctx,light,-7,y-8,12,2);fill(ctx,'#e4bd73',-7,y-3,14,1);
+  } else if(kind==='beret') {
+    fill(ctx,color,-9,y-6,18,5);fill(ctx,color,-5,y-8,12,3);fill(ctx,dark,1,y-10,2,3);fill(ctx,light,-7,y-6,7,1);
+  } else if(kind==='crown') {
+    fill(ctx,color,-8,y-5,16,4);for(const x of [-8,-2,4])fill(ctx,color,x,y-9,4,5);
+    fill(ctx,light,-8,y-2,16,1);fill(ctx,'#b54b46',-1,y-5,2,2);fill(ctx,'#4a8798',-6,y-5,2,2);fill(ctx,'#4a8798',4,y-5,2,2);
+  }
 }
 
 /**

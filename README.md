@@ -1,6 +1,8 @@
 # StudyVillage
 
-Un pequeño vecindario para estudiar juntos: casas propias, avatares, voz, pantalla y pizarra. Los proyectos permanecen en el equipo de su dueño. Interfaz en español, código TypeScript + Canvas, shell Tauri 2.
+Cambios recientes: [punto de continuación](docs/CONTINUATION.md). Interacción, idioma, pizarra y **servidor propio**: [docs/SERVER.md](docs/SERVER.md) y la guía del dueño en [server/README.md](server/README.md).
+
+Un pequeño vecindario para estudiar juntos: casas propias, avatares, voz, pantalla y pizarra. Los proyectos permanecen en el equipo de su dueño. Interfaz en español e inglés (Ajustes → Perfil → Idioma), código TypeScript + Canvas, shell Tauri 2. Opcionalmente, un servidor propio (Node 24 + SQLite) mantiene el mundo con hasta 24 personas.
 
 **Estado: implementación en integración; P0 no certificado.** El empaquetado nativo ya pasa en CI y el `.AppImage` arranca en Linux. Siguen sin evidencia la prueba entre dos equipos, la captura real de micrófono/pantalla y la ejecución en Windows. Consulta [STATUS](docs/STATUS.md) y [TEST_RESULTS](TEST_RESULTS.md). No se ha publicado el proyecto ni decidido una licencia final.
 
@@ -15,21 +17,35 @@ npm run dev
 
 También existe `npm run demo`, que levanta Vite y abre el navegador. El recorrido guiado de lo que ya funciona está en [DEMO](docs/DEMO.md).
 
-Abre `http://127.0.0.1:1420`. El servidor Vite es solo una herramienta local de desarrollo; la app empaquetada carga los recursos incluidos y no necesita Node ni un servidor de aplicación.
+Abre `http://127.0.0.1:3000`. El servidor Vite es solo una herramienta local de desarrollo; la app empaquetada carga los recursos incluidos y no necesita Node ni un servidor de aplicación.
 
-Para el primer gate de medios, abre `http://127.0.0.1:1420/?diagnostic=1`. Permite comprobar APIs, solicitar micrófono/pantalla, detener pistas, exportar resultados y ejecutar un loopback de medios sintéticos. La prueba sintética no valida una captura real ni otro equipo.
+Para el primer gate de medios, abre `http://127.0.0.1:3000/?diagnostic=1`. Permite comprobar APIs, solicitar micrófono/pantalla, detener pistas, exportar resultados y ejecutar un loopback de medios sintéticos. La prueba sintética no valida una captura real ni otro equipo.
 
 ## Uso
 
 1. Elige nombre y color. Tu identidad criptográfica es independiente del nombre.
-2. Decora tu casa y guarda snippets localmente. Exporta/importa contactos para reconocer huellas; el código amigo no es un servicio de presencia.
+2. Todo se abre desde el botón **Menú** (tecla M): tu casa, la aldea, voz, proyectos, estudio, decorar, contactos y ajustes. Exporta/importa contactos para reconocer huellas; el código amigo no es un servicio de presencia.
 3. «Abrir vecindario» conecta con la señalización gratuita. Copia la invitación y compártela fuera de la app. La persona invitada solicita acceso; el coordinador acepta o rechaza.
-4. Hay seis parcelas fijas: coordinador en 0 y siguientes en el primer hueco libre. Cada persona conserva su propia casa. Entra con permiso, camina con WASD y usa los muebles.
+4. Hay seis parcelas fijas: coordinador en 0 y siguientes en el primer hueco libre. Cada persona conserva su propia casa. La Comunidad está al norte y la Biblioteca al sur. Camina con WASD o flechas; **doble clic o doble toque** abre al instante casas, muebles, estaciones y portales, también desde lejos. Un clic simple no hace nada en ordenador; con los controles táctiles activados, un toque te acerca andando sin abrir nada. E sigue funcionando de cerca.
 5. Dentro de una casa, activa micrófono o comparte pantalla con un gesto explícito. Comprueba el indicador de quién te escucha. Detén la captura antes de mostrar contenido privado.
-6. Pizarra por autor, ocultación local de capas, deshacer lo propio y exportar PNG. Los archivos abiertos en el editor o visor siguen siendo locales.
+6. Pizarra por autor, ocultación local de capas, deshacer lo propio y exportar PNG. En la plaza: Hombres Lobo y Gartic Phone, que el anfitrión arbitra para toda la aldea (Hombres Lobo permite bots; Gartic solo con un Ollama local verificado). El código se escribe en VS Code: «Proyectos» guarda el repositorio, la sesión Live Share activa, quién trabaja y las tareas del grupo.
 7. «Salir» siempre permite abandonar. Una caída inesperada del coordinador ofrece 60 segundos desde su detección; después se cierra la sesión, sin migración de host.
 
-La identidad es temporal en RAM por defecto. Para reconocer el mismo contacto tras reiniciar, guárdala **cifrada con una contraseña** y desbloquéala en la siguiente apertura. No hay recuperación de contraseña ni integración de keyring del SO en esta entrega. La casa y el editor pueden persistir aunque uses una identidad temporal.
+La identidad es temporal en RAM por defecto. Para reconocer el mismo contacto tras reiniciar, guárdala **cifrada con una contraseña** y desbloquéala en la siguiente apertura. No hay recuperación de contraseña ni integración de keyring del SO en esta entrega. La casa y los apuntes pueden persistir aunque uses una identidad temporal.
+
+## Estudio actualizado en la versión web
+
+**Menú → Estudio** reúne Cuadernos, Flashcards y Quiz en una portada ilustrada. Los quizzes tienen biblioteca propia y permiten práctica individual o concurso en la aldea. El mueble **Configurar Ollama** guía la conexión personal y activa cada función verificada. Las funciones de IA permanecen ocultas sin esa configuración. [Guía de uso y migración](docs/STUDY.md).
+
+La pizarra queda fija en pantalla y Ajustes se organiza por secciones. Estos cambios corresponden al código web; no se han reconstruido los instaladores anteriores.
+
+## Novedades de 0.2.1
+
+Cámara opcional en Hombres Lobo y Gartic: tarjetas cuadradas redondeadas, vista propia en espejo y captura ideal Full HD a 30 fps. El vídeo solo se ofrece a quienes abren el mismo juego en la misma escena; se apaga al cerrar/cambiar de juego o salir de la sesión. Micrófono independiente.
+
+## Novedades de 0.2.0
+
+Tema de madera y papel en apuntes, pizarra y proyectos. Shift para correr; decoración explícita con catálogo, giro, cuadrícula y deshacer. Hombres Lobo incluye cartas configurables y sets guardados. El anfitrión puede terminar cualquier partida. Tarjetas ofrece creación manual, repaso y concursos compartidos; la IA queda en opciones avanzadas. Las bibliotecas nuevas empiezan vacías.
 
 ## Linux / Tauri
 
@@ -72,7 +88,7 @@ npm run desktop:build -- --config src-tauri/tauri.windows.conf.json
 
 Se configura un instalador NSIS `.exe`. [.github/workflows/desktop.yml](.github/workflows/desktop.yml) compila Linux y Windows en runners de cada plataforma y conserva artifacts; no publica releases.
 
-**El workflow ya se ha ejecutado y pasa en los dos runners.** Genera `StudyVillage_0.1.0_x64-setup.exe` (NSIS) en Windows y `.deb` + `.AppImage` en Linux. Descargar el instalador sin clonar nada:
+La versión actual es **0.2.1**. El workflow genera `StudyVillage_0.2.1_x64-setup.exe` (NSIS) en Windows y `.deb` + `.AppImage` en Linux. Descargar el instalador sin clonar nada:
 
 ```bash
 gh run list --workflow "Desktop build only (no publication)"
@@ -99,7 +115,7 @@ Los tests de navegador usan Chrome del sistema (`/usr/bin/google-chrome`); se pu
 - Los mensajes tienen versión, esquema, autenticación y límites. La identidad se verifica con firmas ECDSA P-256 y challenge-response. Nombres iguales no conceden permisos.
 - Solo se publican alias, tipos y coordenadas de muebles. Las rutas, archivos, snippets y claves privadas nunca forman parte de snapshots públicos. No existe ejecución remota ni API de acceso remoto al filesystem.
 - SQLite guarda datos propios en el directorio de datos de Tauri; el navegador de desarrollo usa IndexedDB. SQLite no cifra tus snippets/proyectos. Las claves persistidas sí van cifradas de forma opt-in. Los datos remotos se conservan en RAM y se limpian al terminar; no se promete borrado forense del SO.
-- Máximo seis miembros; colas, payloads y pizarra acotados. Voz tiene prioridad sobre la pantalla (presupuesto inicial de pantalla 720p/10 fps). Seis pantallas, voz privada, audio del sistema, webcam, packs, IA y editor colaborativo quedan en backlog.
+- Máximo seis miembros; colas, payloads y pizarra acotados. Voz tiene prioridad sobre la pantalla (captura ideal de hasta 4K/30 fps, limitada por navegador y conexión). Seis pantallas, audio del sistema, webcam y packs quedan en backlog. No hay editor de código en la app: la edición conjunta se hace con VS Code Live Share.
 - Las capturas pueden revelar notificaciones, contraseñas u otros archivos por decisión del usuario. La app no graba medios.
 
 ## Contribuir sin solapamientos
@@ -113,6 +129,6 @@ git clone https://github.com/Javpato/HACKATHON.git
 cd HACKATHON && npm ci && npm run demo
 ```
 
-El repositorio es privado: hace falta acceso con la cuenta propietaria o como colaborador. Los workflows de `.github/workflows/` siguen sin ejecutarse de forma remota.
+El repositorio es privado: hace falta acceso con la cuenta propietaria o como colaborador. Los workflows de `.github/workflows/` compilan en CI sin publicar releases.
 
 No ejecutar publicación pública sin decisión humana. Código y assets tienen decisiones de licencia separadas pendientes; [ASSETS_LICENSES.md](ASSETS_LICENSES.md) registra la procedencia. Las referencias oficiales de [Tauri](https://v2.tauri.app/), [PeerJS](https://peerjs.com/client/getting-started) y [rusqlite](https://docs.rs/rusqlite/) documentan APIs, no validan nuestro hardware.

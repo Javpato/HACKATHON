@@ -25,6 +25,7 @@ export interface EnvironmentState {
   weatherAutoChange: boolean;
   ambientAudioEnabled: boolean;
   ambientVolume: number;
+  ambientSound: 'weather' | 'rain' | 'wind' | 'brown_noise';
   particleQuality: ParticleQuality;
   revision: number;
 }
@@ -55,6 +56,7 @@ export const environmentStateSchema = z.object({
   weatherAutoChange: z.boolean(),
   ambientAudioEnabled: z.boolean(),
   ambientVolume: z.number().min(0).max(1),
+  ambientSound: z.enum(['weather', 'rain', 'wind', 'brown_noise']).default('weather'),
   particleQuality: z.enum(['off', 'low', 'medium', 'high']),
   revision: z.number().int().nonnegative(),
 });
@@ -161,6 +163,7 @@ export class EnvironmentController {
     weatherAutoChange: false,
     ambientAudioEnabled: false,
     ambientVolume: 0.35,
+    ambientSound: 'weather',
     particleQuality: 'medium',
     revision: 1,
   };
@@ -170,6 +173,16 @@ export class EnvironmentController {
   private noiseNode: AudioNode | null = null;
   private gainNode: GainNode | null = null;
   private listeners = new Set<(state: EnvironmentState) => void>();
+
+  constructor() {
+    try {
+      const raw = localStorage.getItem('studyvillage-environment-v1');
+      if (raw) {
+        const parsed = environmentStateSchema.safeParse(JSON.parse(raw));
+        if (parsed.success) this.state = parsed.data;
+      }
+    } catch { /* Use defaults when storage is unavailable. */ }
+  }
 
   getState(): EnvironmentState {
     return { ...this.state };
@@ -192,7 +205,10 @@ export class EnvironmentController {
     const parsed = environmentStateSchema.safeParse(next);
     if (!parsed.success) return this.state;
     const weatherChanged = parsed.data.weather !== this.state.weather || parsed.data.particleQuality !== this.state.particleQuality;
+    const soundChanged = parsed.data.ambientSound !== this.state.ambientSound;
     this.state = parsed.data;
+    try { localStorage.setItem('studyvillage-environment-v1', JSON.stringify(this.state)); } catch { /* Storage may be unavailable. */ }
+    if (soundChanged && this.audioCtx) { void this.audioCtx.close(); this.audioCtx = null; this.gainNode = null; this.noiseNode = null; }
     if (weatherChanged) {
       this.rebuildParticles();
     }
@@ -321,7 +337,7 @@ export class EnvironmentController {
     ctx: CanvasRenderingContext2D,
     w = 768,
     h = 432,
-    lampPositions: readonly { x: number; y: number }[] = [],
+    lampPositions: readonly { x: number; y: number; groundY?: number }[] = [],
     isInterior = false,
   ): void {
     const profile = getLightingProfile(this.state.timeOfDay, this.state.weather);
@@ -376,6 +392,12 @@ export class EnvironmentController {
         ctx.beginPath();
         ctx.arc(lamp.x, lamp.y, radius, 0, Math.PI * 2);
         ctx.fill();
+        if (lamp.groundY !== undefined) {
+          const ground = ctx.createRadialGradient(lamp.x, lamp.groundY, 0, lamp.x, lamp.groundY, radius * .7);
+          ground.addColorStop(0, `rgba(255, 208, 128, ${(.14 * profile.lampIntensity).toFixed(3)})`);
+          ground.addColorStop(1, 'rgba(255, 208, 128, 0)');
+          ctx.fillStyle = ground; ctx.beginPath(); ctx.ellipse(lamp.x, lamp.groundY, radius * .7, radius * .28, 0, 0, Math.PI * 2); ctx.fill();
+        }
       }
       ctx.restore();
     }
@@ -431,7 +453,7 @@ export class EnvironmentController {
 
         const filter = this.audioCtx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = 650;
+        filter.frequency.value = { weather: 650, rain: 2400, wind: 450, brown_noise: 180 }[this.state.ambientSound];
 
         this.gainNode = this.audioCtx.createGain();
         this.gainNode.gain.value = 0;
@@ -448,7 +470,7 @@ export class EnvironmentController {
       }
 
       if (this.gainNode) {
-        const weatherFactor =
+        const weatherFactor = this.state.ambientSound !== 'weather' ? 0.18 :
           this.state.weather === 'heavy_rain'
             ? 0.25
             : this.state.weather === 'light_rain'

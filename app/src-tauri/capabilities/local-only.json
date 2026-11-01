@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "local-only",
-  "description": "Only the bundled main UI can use fixed local storage and an OS file picker. No shell, network filesystem, arbitrary path, or remote origin permissions.",
+  "description": "Only the bundled main UI can use fixed local storage an OS file picker, and handing vetted https/VS Code links to the system browser. No shell, network filesystem, arbitrary path, or remote origin permissions.",
   "windows": ["main"],
-  "permissions": ["core:default", "allow-load-local", "allow-save-local", "allow-choose-local-file"]
+  "permissions": ["core:default", "allow-load-local", "allow-save-local", "allow-choose-local-file", "allow-open-external"]
 }

@@ -1,10 +1,19 @@
-import { decryptIdentity, encryptIdentity, exportContact, generateIdentity, parseContact } from './identity';
+import { sharePublicContact } from './local-bridge/contact-share';
+import { pruneDoorPositions } from './house/space-draw';
+import { errorMessage, userError } from './errors/messages';
+import { t } from './i18n';
+import { getAvatarCustomization, setAvatarCustomization } from './assets/custom-assets';
+import { appearanceSchema } from './assets/appearance';
+import { installWardrobe } from './house/wardrobe';
+import { decryptIdentity, encryptIdentity, exportContact, generateIdentity, parseContact, validatePublicIdentity } from './identity';
 import { VillageClient } from './session/client';
+import { ServerVillageClient, checkServer, serverHttpUrl } from './server/client';
+import type { BoardStroke } from './protocol/types';
 import { createStudyUI } from './ui/app';
 import { MediaDiagnostic } from './diagnostics/media-diagnostic';
 import { chooseLocalFile, downloadLocal, showLocalPreview } from './local-bridge/files';
 import { newLocalData, openLocalStore, publicHouse, SaveQueue, type LocalData } from './storage/local-store';
-import type { AppActions, AppView, PublicHouse } from './protocol/types';
+import type { AppActions, AppMessage, AppView, PublicHouse } from './protocol/types';
 
 const activePhases = new Set(['SIGNALING', 'CONNECTING', 'AUTHENTICATING', 'PENDING_APPROVAL', 'JOINED', 'RECONNECTING']);
 function initialHouse(ownerId: string): PublicHouse {
@@ -26,7 +35,13 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
   let identity = await generateIdentity(data.profile.displayName, data.profile.color);
   let lockedIdentity = !!data.encryptedIdentity;
   let ownHouse = data.house ? publicHouse(data.house, identity.public.fingerprint) : initialHouse(identity.public.fingerprint);
-  let client = new VillageClient(identity, ownHouse);
+  if (data.profile.appearance) setAvatarCustomization(data.profile.appearance);
+  const wardrobeMigration = !data.profile.wardrobeAdded;
+  if (wardrobeMigration) {
+    ownHouse = installWardrobe(ownHouse);
+    if (ownHouse.furniture.some(f => f.kind === 'cabinet')) data.profile.wardrobeAdded = true;
+  }
+  let client: VillageClient | ServerVillageClient = new VillageClient(identity, ownHouse, { appearance: getAvatarCustomization() });
   let network = client.view;
   let notice: string | null = lockedIdentity ? 'Desbloquea tu identidad guardada para conectar. Tu casa sigue disponible sin conexión.' : null;
   let closed = false;
@@ -41,7 +56,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
   };
   const diagnostic = new MediaDiagnostic(update);
   const report = (error: unknown) => {
-    const message = error instanceof Error && error.message.length < 220 ? error.message : 'No se pudo completar la acción. Revisa los datos y vuelve a intentarlo.';
+    const message = errorMessage(error);
     notice = message; update();
   };
   const writes = new SaveQueue(store, error => { savingFailed = true; report(error); });
@@ -51,8 +66,15 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     await writes.save(data);
   };
   let unsubscribe = () => {};
-  const subscribe = () => { unsubscribe = client.subscribe(view => { network = view; update(); }); };
-  const replaceClient = () => { unsubscribe(); client.dispose(); client = new VillageClient(identity, ownHouse); subscribe(); };
+  // Activity listeners belong to the UI and outlive any one client.
+  const appListeners = new Set<(message: AppMessage) => void>();
+  const subscribe = () => {
+    const offView = client.subscribe(view => { network = view; update(); });
+    const offApp = client.onApp(message => { for (const listener of appListeners) listener(message); });
+    unsubscribe = () => { offView(); offApp(); };
+  };
+  const replaceClient = () => { unsubscribe(); client.dispose(); client = new VillageClient(identity, ownHouse, { appearance: getAvatarCustomization() }); subscribe(); };
+  const serverClient = () => { if (!(client instanceof ServerVillageClient)) throw userError(t('Conéctate primero a un servidor.')); return client; };
   const requireOffline = () => { if (activePhases.has(network.phase)) throw new Error('Sal del vecindario antes de cambiar tu identidad o perfil.'); };
   const requireUnlocked = () => { if (lockedIdentity) throw new Error('Desbloquea tu identidad guardada antes de conectar.'); };
   const run = async (action: () => void | Promise<void>) => { try { await action(); } catch (error) { report(error); throw error; } };
@@ -63,12 +85,30 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     joinVillage: invite => run(async () => { requireUnlocked(); diagnostic.stop(); await client.joinVillage(invite); }),
     decideJoin: (id, accept) => runSync(() => client.decideJoin(id, accept)),
     rotateInvite: () => runSync(() => client.rotateInvite()),
-    leave: () => run(async () => { diagnostic.stop(); await client.leave(); await writes.flush(); }),
+    leave: () => run(async () => { diagnostic.stop(); const wasServer = client instanceof ServerVillageClient; await client.leave(); await writes.flush(); if (wasServer) { replaceClient(); update(); } }),
+    checkServer: url => checkServer(url),
+    connectServer: (url, options) => run(async () => {
+      requireOffline();
+      // A locked saved identity must be unlocked first; a temporary identity may only visit.
+      if (lockedIdentity) throw new Error('Desbloquea tu identidad guardada antes de conectar.');
+      const address = serverHttpUrl(url);
+      diagnostic.stop(); unsubscribe(); client.dispose();
+      client = new ServerVillageClient(identity, ownHouse, { url: address, saved: !!data.encryptedIdentity, invite: options.invite || undefined, claim: options.claim || undefined, appearance: getAvatarCustomization() });
+      subscribe();
+      try { await client.connect(); }
+      catch (error) { const failed = client; replaceClient(); failed.dispose(); notice = errorMessage(error); update(); throw error; }
+      update();
+    }),
+    serverRequest: body => serverClient().request(body),
+    travel: neighborhood => run(() => serverClient().travel(neighborhood)),
+    importToServer: (boards: { ref: string; strokes: BoardStroke[] }[]) => serverClient().importOwn(boards),
     visitHouse: id => runSync(() => client.visitHouse(id)),
     decideVisit: (id, accept) => runSync(() => client.decideVisit(id, accept)),
     leaveHouse: () => runSync(() => client.leaveHouse()),
     publishHouse: house => runSync(() => client.publishHouse(publicHouse(house, identity.public.fingerprint))),
     move: position => client.move(position),
+    selectBoard: ref => runSync(() => client.selectBoard(ref)),
+    commitBoard: (ref, changes) => client.commitBoard(ref, changes),
     sendStroke: stroke => runSync(() => client.sendStroke(stroke)),
     deleteStroke: id => runSync(() => client.deleteStroke(id)),
     kickMember: id => runSync(() => client.kickMember(id)),
@@ -80,18 +120,42 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     setTalking: talking => client.setTalking(talking),
     startScreen: () => run(() => client.startScreen()),
     stopScreen: () => client.stopScreen(),
+    setCameraActivity: activity => client.setCameraActivity(activity),
+    toggleGameCamera: () => run(() => client.toggleGameCamera()),
+    updateAppearance: appearance => run(async () => {
+      const next = appearanceSchema.parse(appearance); const previous = data.profile.appearance;
+      data.profile.appearance = next; await persist();
+      if (savingFailed) { data.profile.appearance = previous; throw new Error('No se pudo guardar el look. Vuelve a intentarlo.'); }
+      setAvatarCustomization(next); await client.updateAppearance(next); update();
+    }),
+    workspaceCommand: command => client.workspaceCommand(command),
+    voiceCommand: command => client.voiceCommand(command),
     requestPrivate: (identityId) => client.requestPrivate(identityId),
+    sendApp: (channel, to, data) => client.sendApp(channel, to, data),
+    onApp: listener => { appListeners.add(listener); return () => { appListeners.delete(listener); }; },
     updateProfile: (displayName, color) => run(async () => {
       requireOffline();
       const name = displayName.trim().slice(0, 32);
       if (!name || !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Elige un nombre y un color válidos.');
-      data.profile = { displayName: name, color };
+      data.profile = { ...data.profile, displayName: name, color };
       identity.public = { ...identity.public, displayName: name, color };
       replaceClient(); await persist(); update();
     }),
+    saveHouseLayout: house => run(async () => {
+      if(house.ownerId!==identity.public.fingerprint)throw new Error('Solo puedes decorar tu propia casa.');
+      let next=publicHouse(pruneDoorPositions(house));
+      next.revision=Math.max(next.revision,ownHouse.revision+1);
+      if(client instanceof ServerVillageClient)next=await client.saveHouseLayout(next);
+      else client.publishHouse(next);
+      ownHouse=next;await persist();update();
+      if(savingFailed)throw userError(t('No se pudo guardar en este dispositivo. Inténtalo de nuevo.'));
+    }),
     updateOwnHouse: house => runSync(() => {
       if (house.ownerId !== identity.public.fingerprint) throw new Error('Solo puedes decorar tu propia casa.');
-      const next = publicHouse(house);
+      // Decoration must not overwrite access lists saved by another device.
+      const authoritative=network.serverHouse;
+      const next = publicHouse(authoritative?{...house,floors:authoritative.floors,allowlist:authoritative.allowlist,doorPositions:authoritative.doorPositions,access:house.access===ownHouse.access?authoritative.access:house.access}:house);
+      if(authoritative)next.revision=Math.max(next.revision,authoritative.revision+1);
       if (next.revision <= ownHouse.revision) next.revision = ownHouse.revision + 1;
       ownHouse = next;
       data.projectLinks = Object.fromEntries(Object.entries(data.projectLinks).filter(([id]) => ownHouse.furniture.some(item => item.id === id)));
@@ -120,6 +184,27 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
       ownHouse = publicHouse(ownHouse, identity.public.fingerprint); lockedIdentity = false;
       replaceClient(); await persist(); notice = 'Identidad desbloqueada; tus contactos pueden reconocer tu huella.'; update();
     }),
+    addSessionContact: id => run(async () => {
+      const person=network.phase==='JOINED'?(network.members.find(m=>m.connected&&m.identity.fingerprint===id)?.identity??network.voiceDirectory?.find(p=>p.fingerprint===id)):undefined;
+      if(!person||id===identity.public.fingerprint)throw userError(t('Esa persona ya no está en la sesión.'));
+      if(data.contacts.some(c=>c.identity.fingerprint===id))return;
+      if(data.contacts.length>=100)throw new Error('La agenda admite hasta 100 contactos.');
+      const verified=await validatePublicIdentity(person);
+      if(data.contacts.some(c=>c.identity.fingerprint===id))return;
+      if(data.contacts.length>=100)throw new Error('La agenda admite hasta 100 contactos.');
+      data.contacts=[...data.contacts,{schemaVersion:1,identity:verified}];await persist();update();
+    }),
+    setContactNickname: (id,nickname) => run(async () => {
+      const name=nickname.trim();if(name.length>48)throw userError(t('El apodo admite hasta 48 caracteres.'));
+      data.contacts=data.contacts.map(c=>c.identity.fingerprint===id?{...c,nickname:name}:c);await persist();update();
+    }),
+    shareContact: () => run(async () => {
+      requireUnlocked();
+      try{
+        const result=await sharePublicContact(exportContact(identity,data.friendCode));
+        if(result==='downloaded'){notice=t('Tarjeta descargada. Adjúntala en WhatsApp como documento.');update();}
+      }catch{throw userError(t('No se pudo abrir WhatsApp. Puedes exportar la tarjeta y adjuntarla como documento.'));}
+    }),
     exportContact: () => runSync(() => {
       requireUnlocked();
       downloadLocal('studyvillage-contact.json', new Blob([exportContact(identity, data.friendCode)], { type: 'application/json' }));
@@ -131,7 +216,8 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
       if (contact.identity.fingerprint === identity.public.fingerprint) throw new Error('Este contacto eres tú.');
       const existing = data.contacts.filter(item => item.identity.fingerprint !== contact.identity.fingerprint);
       if (existing.length >= 100) throw new Error('La agenda admite hasta 100 contactos.');
-      data.contacts = [...existing, contact]; await persist(); notice = 'Contacto importado y huella verificada. Una invitación temporal sigue siendo necesaria para conectar.'; update();
+      const nickname=data.contacts.find(c=>c.identity.fingerprint===contact.identity.fingerprint)?.nickname;
+      data.contacts = [...existing, {...contact,...(nickname?{nickname}:{})}]; await persist(); notice = 'Contacto importado y huella verificada. Una invitación temporal sigue siendo necesaria para conectar.'; update();
     }),
     rotateFriendCode: () => { data.friendCode = crypto.randomUUID(); void persist(); notice = 'Código amigo renovado. Tu identidad y huella se conservan.'; update(); },
     openLocalFile: furnitureId => run(async () => {
@@ -151,7 +237,7 @@ export async function startApp(root: HTMLElement): Promise<() => void> {
     dismissNotice: () => { notice = null; update(); },
   };
   ui = createStudyUI(root, actions); subscribe();
-  if (!loaded) await persist();
+  if (!loaded || wardrobeMigration) await persist();
   update();
   const dispose = () => {
     if (closed) return;

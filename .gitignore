@@ -13,3 +13,6 @@ playwright-report/
 !.env.example
 app/src-tauri/gen/
 
+server/dist/
+server/data/
+app/.cert/

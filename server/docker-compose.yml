@@ -1,0 +1,15 @@
+# Run from the repository root:  docker compose -f server/docker-compose.yml up -d --build
+# Put a TLS reverse proxy (Caddy, nginx, Traefik) in front for wss://, see server/README.md.
+services:
+  studyvillage:
+    build: { context: .., dockerfile: server/Dockerfile }
+    image: studyvillage-server
+    restart: unless-stopped
+    ports: ["127.0.0.1:8787:8787"]   # reachable only through the proxy on this machine
+    environment:
+      WORLD_NAME: "Mi aldea"
+      ALLOWED_ORIGINS: "*"            # or the exact origins of your StudyVillage web app
+      # CLAIM_SECRET: "set-your-own-long-secret"   # otherwise one is generated and logged once
+    volumes: ["studyvillage-data:/data"]
+volumes:
+  studyvillage-data: {}
