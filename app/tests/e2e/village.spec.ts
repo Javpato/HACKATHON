@@ -259,7 +259,8 @@ test.describe('whiteboard tools', () => {
 
   test('a text note renders LaTeX as ink on the board', async ({ page }) => {
     const { box, tool } = await openBoard(page);
-    expect(await ink(page, 400, 150, 300, 120)).toBe(0);
+    // Wait for the empty paper to be painted before measuring.
+    await expect.poll(() => ink(page, 400, 150, 300, 120), { timeout: 5_000 }).toBe(0);
     await tool('Texto');
     await page.mouse.click(box.x + box.width * (420 / 768), box.y + box.width * (160 / 768));
     await page.locator('.sv-board-text').fill('$\\frac{a}{b} + \\sqrt{x}$');
