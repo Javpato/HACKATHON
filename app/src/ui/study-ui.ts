@@ -1,172 +1,178 @@
-import type { FlashcardDeck, FlashcardItem, HostOllamaGateway } from '../ai/ollama-gateway';
+import { msg, t, defaultText, defaultMsg, setDisplayText, setDisplayAttribute, getLocale, formatDate, type DisplayText } from '../i18n';
+import { studySprite } from './study-sprites';
+import { LocalOllama, type AiFeature } from '../ai/local-ollama';
+import { AppError, errorMessage } from '../errors/messages';
+import { StudyLibrary, type FlashcardDeck, type FlashcardItem, type QuizDefinition, type QuizQuestion } from '../study/library';
+import { SecureNotesStore } from '../notes/secure-notes';
+import { NotesPanel } from './notes-ui';
 import { SharedRoom } from '../minigames/room';
 import { StudyQuiz, type QuizAction, type QuizView } from '../minigames/study-quiz';
-import { OllamaGarticBots } from '../ai/gartic-bots';
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, text = ''): HTMLElementTagNameMap[K] { const e = document.createElement(tag); e.textContent = text; return e; }
-function button(text: string, action: () => void, primary = false): HTMLButtonElement { const b = el('button', text); b.type = 'button'; if (primary) b.className = 'is-primary'; b.onclick = action; return b; }
-function field(label: string, input: HTMLElement): HTMLLabelElement { const l = el('label', label); l.append(input); return l; }
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, text: DisplayText = '', cls = ''): HTMLElementTagNameMap[K] { const e = document.createElement(tag); setDisplayText(e, text); e.className = cls; return e; }
+/** Static labels become messages; values that are already messages pass through. */
+function L(label: DisplayText): DisplayText { return typeof label === 'string' ? msg(label) : label; }
+function button(text: DisplayText, action: () => void, primary = false): HTMLButtonElement { const b = el('button',text,primary?'is-primary':''); b.type='button';b.onclick=action;return b; }
+function field(label: DisplayText, input: HTMLElement): HTMLLabelElement { const l=el('label',label);l.append(input);return l; }
+type Mode = 'home'|'notebooks'|'notebook'|'cards'|'decks'|'edit'|'review'|'quizzes'|'quiz-library'|'quiz-edit'|'quiz-mode'|'group'|'play';
 export interface StudyContext {
-  actor(): { id: string; displayName: string; isHost: boolean };
-  close(): void; notify(message: string): void;
-  gateway: HostOllamaGateway;
-  room: SharedRoom<QuizAction, QuizView, StudyQuiz>;
-  bots?: OllamaGarticBots;
+ actor(): {id: string;displayName: string;isHost: boolean;online: boolean}; close():void;notify(message:string):void;
+ library: StudyLibrary; ai: LocalOllama; notes: SecureNotesStore; room: SharedRoom<QuizAction,QuizView,StudyQuiz>;
 }
 export class StudyPanel {
-  readonly root = el('section');
-  private mode: 'library' | 'edit' | 'review' | 'quiz' = 'library';
-  private deckId: string | null = null;
-  private index = 0; private revealed = false; private error = '';
-  private off: (() => void) | null = null;
-  private progress: Record<string, 'mastered' | 'review'> = {};
-  private busy = false; private generation = 0; private clock: ReturnType<typeof setInterval> | null = null;
-  constructor(private readonly ctx: StudyContext) { this.root.className = 'sv-study-workspace'; this.root.setAttribute('aria-label', 'Tarjetas de estudio'); }
-  mount(container: HTMLElement): void {
-    container.replaceChildren(this.root);
-    try { this.progress = JSON.parse(localStorage.getItem('studyvillage-review-v2') || '{}'); } catch { this.progress = {}; }
-    try {
-      const old = JSON.parse(localStorage.getItem('studyvillage-flashcard-progress-v1') || '{}');
-      const marks = old[this.ctx.actor().id] ?? old['local-host'] ?? {};
-      for (const deck of this.ctx.gateway.listDecks()) for (const card of deck.cards) if (!( `${deck.id}:${card.id}` in this.progress) && marks[card.id]) this.progress[`${deck.id}:${card.id}`] = marks[card.id] === 'mastered' ? 'mastered' : 'review';
-    } catch { /* keep current progress */ }
-    this.off = this.ctx.room.subscribe((_view, error) => { if (error) this.error = error; if (this.mode === 'quiz') this.render(); });
-    this.clock = setInterval(() => { const clock = this.root.querySelector<HTMLElement>('[data-quiz-deadline]'); if (clock) clock.textContent = `${Math.max(0, Math.ceil((Number(clock.dataset.quizDeadline) - Date.now()) / 1000))} s`; }, 250);
-    this.ctx.room.refresh(); this.render();
+ readonly root=el('section','','sv-study-workspace');
+ private mode:Mode='home';private deckId:string|null=null;private quizId:string|null=null;
+ private index=0;private revealed=false;private progress:Record<string,'mastered'|'review'>={};
+ private clock:ReturnType<typeof setInterval>|null=null;private off:(()=>void)[]=[];private notesPanel:NotesPanel;
+ private solo:StudyQuiz|null=null;private lastView='';private generation=0;private mounted=false;private groupSeconds=20;
+ private alert=el('p','','sv-feedback is-error');
+ constructor(private ctx:StudyContext){
+  setDisplayAttribute(this.root, 'aria-label', msg('Estudio'));this.alert.setAttribute('role','alert');this.alert.hidden=true;
+  this.notesPanel=new NotesPanel({store:ctx.notes,actorId:()=>ctx.actor().id,close:()=>this.go('notebooks'),notify:ctx.notify,makeDeck:note=>{const d=ctx.library.createManualDeck({title:`Apunte: ${note.title}`,ownerId:'local-host',visibility:'private'});this.openDeck(d.id);this.render();},makeAiDeck:null});
+ }
+ mount(container:HTMLElement):void{
+  this.mounted=true;container.replaceChildren(this.root);
+  try{this.progress=JSON.parse(localStorage.getItem('studyvillage-review-v2')||'{}');}catch{this.progress={};}
+  this.off.push(this.ctx.room.subscribe((view,error)=>{if(error)this.fail(error);if((this.mode==='group'||(this.mode==='play'&&!this.solo))&&view){const signature=JSON.stringify({...view,remainingMs:0});if(signature!==this.lastView){this.lastView=signature;this.render();}}}));
+  this.off.push(this.ctx.ai.subscribe(()=>{if(this.mode!=='notebook'&&this.mode!=='edit'&&this.mode!=='quiz-edit')this.render();else this.root.querySelectorAll<HTMLElement>('[data-ai-feature]').forEach(e=>{e.hidden=!this.ctx.ai.isReady(e.dataset.aiFeature as AiFeature);});}));
+  try { const old=JSON.parse(localStorage.getItem('studyvillage-flashcard-progress-v1')||'{}'); const marks=old[this.ctx.actor().id]??old['local-host']??{}; for(const deck of this.ctx.library.listDecks())for(const card of deck.cards){const key=`${deck.id}:${card.id}`;if(!(key in this.progress)&&marks[card.id])this.progress[key]=marks[card.id]==='mastered'?'mastered':'review';} } catch {}
+  this.clock=setInterval(()=>{if(this.solo?.tick(Date.now())&&this.mode==='play')this.render();const timer=this.root.querySelector<HTMLElement>('[data-quiz-deadline]');if(timer)setDisplayText(timer, msg("{p0} s", { p0: Math.max(0,Math.ceil((Number(timer.dataset.quizDeadline)-Date.now())/1000)) }));},250);
+  this.ctx.room.refresh();this.render();
+ }
+ unmount():void{this.notesPanel.unmount();this.mounted=false;this.generation++;this.ctx.ai.cancel('flashcards');this.ctx.ai.cancel('quizzes');this.off.splice(0).forEach(fn=>fn());if((this.mode==='group'||this.mode==='play')&&!this.solo)this.ctx.room.act({kind:'leave'});if(this.clock)clearInterval(this.clock);this.clock=null;this.root.remove();this.mode='home';this.solo=null;}
+ openDeck(id:string):void{this.deckId=id;this.mode='edit';}
+ private go(mode:Mode):void{if((this.mode==='group'||this.mode==='play')&&!this.solo&&mode!=='group'&&mode!=='play')this.ctx.room.act({kind:'leave'});this.notesPanel.unmount();this.generation++;this.ctx.ai.cancel('flashcards');this.ctx.ai.cancel('quizzes');this.mode=mode;this.alert.hidden=true;this.render();}
+ private fail(error:unknown):void{this.alert.textContent=errorMessage(error);this.alert.hidden=false;}
+ private run(fn:()=>void):void{try{this.alert.hidden=true;fn();this.render();}catch(e){this.fail(e);}}
+ private back():void{
+  const parents:Record<Mode,Mode>={home:'home',notebooks:'home',notebook:'notebooks',cards:'home',decks:'cards',edit:'decks',review:'decks',quizzes:'home','quiz-library':'quizzes','quiz-edit':'quiz-library','quiz-mode':'quiz-library',group:'quiz-library',play:'quiz-library'};
+  this.go(parents[this.mode]);
+ }
+ private render():void{
+  if(!this.mounted)return;
+  this.root.replaceChildren();const head=el('header');if(this.mode!=='home')head.append(button(msg('← Volver'),()=>this.back()));
+  const titles:Record<Mode,DisplayText>={home:msg('Tu rincón de estudio'),notebooks:msg('Mis cuadernos'),notebook:msg('Cuaderno'),cards:msg('Flashcards'),decks:msg('Mis mazos'),edit:msg('Editar mazo'),review:msg('Repasar'),quizzes:msg('Quiz'),'quiz-library':msg('Mis quizzes'),'quiz-edit':msg('Editar quiz'),'quiz-mode':msg('Cómo quieres jugar'),group:msg('Concurso en la aldea'),play:msg('Quiz')};
+  head.append(el('h2',titles[this.mode]),button(msg('Cerrar'),this.ctx.close));this.root.append(head,this.alert);
+  const body=el('div','','sv-study-body');this.root.append(body);
+  if(this.mode==='home'){body.append(el('p',msg('Elige cómo quieres aprender hoy.'),'sv-study-intro'));const grid=el('div','','sv-study-portals');for(const [name,icon,description,mode]of[['Cuadernos','▤','Tus ideas y apuntes, a tu manera.','notebooks'],['Flashcards','▣','Recuerda una tarjeta cada vez.','cards'],['Quiz','?','Pon a prueba lo que sabes.','quizzes']]as const){const tile=button('',()=>this.go(mode));tile.className='sv-study-portal';tile.append(studySprite(mode==='notebooks'?'notebook':mode==='cards'?'cards':'quiz',144),el('strong',msg(name)),el('span',msg(description)));grid.append(tile);}body.append(grid);}
+  else if(this.mode==='notebooks')this.notebooks(body);
+  else if(this.mode==='notebook')this.notesPanel.mount(body);
+  else if(this.mode==='cards'||this.mode==='quizzes')this.choices(body,this.mode==='cards');
+  else if(this.mode==='decks')this.decks(body);
+  else if(this.mode==='edit')this.deckEditor(body);
+  else if(this.mode==='review')this.review(body);
+  else if(this.mode==='quiz-library')this.quizzes(body);
+  else if(this.mode==='quiz-edit')this.quizEditor(body);
+  else if(this.mode==='quiz-mode')this.playMode(body);
+  else this.play(body);
+ }
+ private choices(body:HTMLElement,cards:boolean):void{
+  const has=cards?this.ctx.library.listDecks().length:this.ctx.library.listQuizzes().length;
+  const grid=el('div','','sv-study-portals is-choice');const play=button('',()=>this.go(cards?'decks':'quiz-library'));play.className='sv-study-portal';play.append(studySprite(cards?'review':'quiz',144),el('strong',cards ? msg('Repasar mis flashcards') : msg('Jugar un quiz')),el('span',msg('Elige de tu biblioteca y empieza.')));const create=button('',()=>{if(cards)this.deckId=null;else this.quizId=null;this.go(cards?'edit':'quiz-edit');});create.className='sv-study-portal';create.append(studySprite('create',144),el('strong',cards ? msg('Crear flashcards') : msg('Crear un quiz')),el('span',msg('Prepara algo nuevo a tu manera.')));grid.append(play,create);body.append(grid);
+  if(!has)body.append(el('p',cards ? msg('Todavía no tienes mazos. Crea el primero con tus propias preguntas.') : msg('Todavía no tienes quizzes. Crea el primero con preguntas y respuestas.'),'sv-study-intro'));
+ }
+ private notebooks(body:HTMLElement):void{
+  const grid=el('div','','sv-notebook-grid');for(const book of this.ctx.notes.listNotebooks()){
+   const tile=button('',()=>{this.notesPanel.openNotebook(book.id);this.go('notebook');});tile.className='sv-notebook-cover';tile.append(studySprite('notebook'),el('strong',defaultMsg(book.name)),el('small',msg("{p0} páginas", { p0: this.ctx.notes.listNotes(this.ctx.actor().id,book.id).length })));grid.append(tile);
   }
-  unmount(): void { if (this.clock) clearInterval(this.clock); this.clock = null; this.generation++; this.off?.(); this.off = null; this.root.remove(); }
-  openDeck(id: string): void { this.deckId = id; this.mode = 'edit'; }
-  private run(fn: () => void): void {
-    try { this.error = ''; fn(); this.render(); }
-    catch (e) { this.error = e instanceof Error ? e.message : 'No se pudo completar.'; let message = this.root.querySelector<HTMLElement>('[role=alert]'); if (!message) { message = el('p'); message.className = 'sv-error'; message.setAttribute('role', 'alert'); this.root.querySelector('header')!.after(message); } message.textContent = this.error; }
-  }
-  private deck(): FlashcardDeck | null { return this.deckId ? this.ctx.gateway.getDeck(this.deckId) : null; }
-  private render(): void {
-    this.root.replaceChildren();
-    const header = el('header'); header.append(button('Biblioteca', () => { this.mode = 'library'; this.render(); }), el('h2', this.mode === 'quiz' ? 'Jugar en grupo' : 'Tarjetas de estudio'), button('Cerrar', this.ctx.close));
-    if(this.mode==='library')header.querySelector('button')?.remove();
-    this.root.append(header);
-    if (this.error) { const p = el('p', this.error); p.className = 'sv-error'; p.setAttribute('role','alert'); this.root.append(p); }
-    if (this.mode === 'library') this.library();
-    else if (this.mode === 'edit') this.editor();
-    else if (this.mode === 'review') this.review();
-    else this.quiz();
-  }
-  private library(): void {
-    const actor = this.ctx.actor();
-    const actions = el('div'); actions.className = 'sv-study-actions';
-    actions.append(button('Crear mazo', () => { this.deckId = null; this.mode = 'edit'; this.render(); }, true), button('Jugar en grupo', () => { this.mode = 'quiz'; this.ctx.room.refresh(); this.render(); }));
-    this.root.append(actions);
-    const decks = this.ctx.gateway.listDecks(actor.id, actor.isHost);
-    if (!decks.length) this.root.append(el('p', 'Todavía no tienes mazos. Crea uno con tus propias preguntas.'));
-    const grid = el('div'); grid.className = 'sv-study-library';
-    for (const deck of decks) {
-      const card = el('article'); card.className = 'sv-study-card'; card.append(el('h3', deck.title), el('p', `${deck.cards.length} tarjetas · ${deck.cards.filter(c=>this.progress[`${deck.id}:${c.id}`]==='mastered').length} aprendidas`));
-      card.append(button('Repasar', () => { this.deckId = deck.id; this.index = 0; this.revealed = false; this.mode = 'review'; this.render(); }, true));
-      if (this.ctx.gateway.canEditDeck(deck, actor.id, actor.isHost)) card.append(button('Editar', () => { this.deckId = deck.id; this.mode = 'edit'; this.render(); }));
-      grid.append(card);
-    }
-    this.root.append(grid);
-    const advanced = el('details'); advanced.append(el('summary', 'Configurar IA local')); this.aiSettings(advanced); this.root.append(advanced);
-  }
-  private editor(): void {
-    const deck = this.deck(); const actor = this.ctx.actor(); const form = el('div'); form.className = 'sv-study-form';
-    if (deck && !this.ctx.gateway.canEditDeck(deck, actor.id, actor.isHost)) { this.root.append(el('p','Este mazo es de solo lectura.')); return; }
-    const title = el('input'); title.maxLength = 110; title.value = deck?.title ?? ''; title.required = true;
-    form.append(field('Nombre del mazo', title));
-    if (!deck) {
-      form.append(button('Crear', () => this.run(() => { if (!title.value.trim()) throw new Error('Escribe el nombre del mazo.'); this.deckId = this.ctx.gateway.createManualDeck({ title: title.value, ownerId: 'local-host', visibility: 'private' }).id; }), true));
-      this.root.append(form); return;
-    }
-    form.append(button('Guardar nombre', () => this.run(() => { this.ctx.gateway.renameDeck(deck.id, title.value, actor.id, actor.isHost); })));
-    const list = el('div');
-    deck.cards.forEach((card, index) => {
-      const row = el('article'); row.className = 'sv-study-card'; row.append(el('strong', `${index + 1}. ${card.question}`));
-      row.append(button('Editar', () => this.cardEditor(form, deck, card)), button('↑', () => this.run(() => { this.ctx.gateway.reorderCard(deck.id, card.id, 'up', actor.id, actor.isHost); })), button('↓', () => this.run(() => { this.ctx.gateway.reorderCard(deck.id, card.id, 'down', actor.id, actor.isHost); })), button('Eliminar tarjeta', () => this.run(() => { this.ctx.gateway.deleteCard(deck.id, card.id, actor.id, actor.isHost); })));
-      list.append(row);
-    });
-    form.append(list); this.cardEditor(form, deck);
-    const deckOptions = el('details'); deckOptions.append(el('summary', 'Opciones del mazo'));
-    const visibility = el('select'); for (const [value,label] of [['private','Privado'],['shared_read','Solo lectura'],['shared_write','Editable']]) { const o=el('option',label);o.value=value;visibility.append(o); } visibility.value=deck.visibility??'private';
-    visibility.onchange=()=>this.run(()=>{this.ctx.gateway.setDeckVisibility(deck.id,visibility.value as 'private'|'shared_read'|'shared_write',actor.id,actor.isHost);});
-    deckOptions.append(field('Permisos',visibility)); let deleteArmed=false;
-    const remove=button('Eliminar mazo',()=>{if(!deleteArmed){deleteArmed=true;remove.textContent='¿Eliminar este mazo?';return;}this.run(()=>{this.ctx.gateway.deleteDeck(deck.id,actor.id,actor.isHost);this.mode='library';this.deckId=null;});});deckOptions.append(remove);form.append(deckOptions);
-    const ai = el('details'); ai.append(el('summary', 'Crear tarjetas con IA')); this.aiCreator(ai, deck); form.append(ai);
-    this.root.append(form);
-  }
-  private cardEditor(parent: HTMLElement, deck: FlashcardDeck, existing?: FlashcardItem): void {
-    parent.querySelector('[data-card-editor]')?.remove();
-    const editor = el('div'); editor.dataset.cardEditor = 'true'; editor.className = 'sv-study-form';
-    const question = el('textarea'); question.maxLength = 260; question.value = existing?.question ?? '';
-    const answer = el('textarea'); answer.maxLength = 400; answer.value = existing?.answer ?? '';
-    editor.append(field('Pregunta', question), field('Respuesta', answer));
-    const advanced = el('details'); advanced.open = !!existing?.choices; advanced.append(el('summary', 'Opciones de concurso y detalles'));
-    const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = !!existing?.choices;
-    advanced.append(field('Usar en concursos', enabled));
-    const options = Array.from({ length: 4 }, (_, i) => { const input = el('input'); input.maxLength = 120; input.value = existing?.choices?.[i] ?? ''; advanced.append(field(`Opción ${i+1}${i > 1 ? ' (opcional)' : ''}`, input)); return input; });
-    const correct = el('select'); for (let i=0;i<4;i++) { const option = el('option', `Opción ${i+1}`); option.value = String(i); correct.append(option); } correct.value = String(existing?.correctChoice ?? 0);
-    const hint = el('input'); hint.maxLength = 220; hint.value = existing?.hint ?? '';
-    const explanation = el('textarea'); explanation.maxLength = 320; explanation.value = existing?.explanation ?? '';
-    const tags = el('input'); tags.value = existing?.tags.join(', ') ?? '';
-    const difficulty = el('select'); for (const [v,n] of [['easy','Fácil'],['medium','Media'],['hard','Difícil']]) { const o=el('option',n);o.value=v;difficulty.append(o); } difficulty.value = existing?.difficulty ?? 'medium';
-    advanced.append(field('Respuesta correcta', correct), field('Pista', hint), field('Explicación', explanation), field('Etiquetas', tags), field('Dificultad', difficulty)); editor.append(advanced);
-    editor.append(button(existing ? 'Guardar tarjeta' : 'Añadir tarjeta', () => this.run(() => {
-      const actor = this.ctx.actor(); const fresh = this.ctx.gateway.getDeck(deck.id)!;
-      if (!this.ctx.gateway.canEditDeck(fresh, actor.id, actor.isHost)) throw new Error('No puedes editar este mazo.');
-      const choices = options.map(i => i.value.trim());
-      if (enabled.checked && (choices.slice(0,2).some(v => !v) || choices.slice(2).some((v,i) => !v && choices.slice(i+3).some(Boolean)))) throw new Error('Completa al menos las dos primeras opciones, sin huecos.');
-      const card: FlashcardItem = { ...(existing?.sourceRef ? { sourceRef: existing.sourceRef } : {}), id: existing?.id ?? crypto.randomUUID(), question: question.value.trim(), answer: answer.value.trim(), topic: fresh.topic, difficulty: difficulty.value as FlashcardItem['difficulty'], tags: tags.value.split(',').map(t=>t.trim()).filter(Boolean).slice(0,8), ...(hint.value.trim() ? { hint: hint.value.trim() } : {}), ...(explanation.value.trim() ? { explanation: explanation.value.trim() } : {}), ...(enabled.checked ? { choices: choices.filter(Boolean), correctChoice: Number(correct.value) } : {}) };
-      if (!existing && fresh.cards.length >= 100) throw new Error('Máximo 100 tarjetas por mazo.');
-      this.ctx.gateway.saveDeck({ ...fresh, cards: existing ? fresh.cards.map(c=>c.id===card.id?card:c) : [...fresh.cards, card], updatedAt: Date.now() });
-    }), true));
-    parent.append(editor);
-  }
-  private review(): void {
-    const deck = this.deck(); const card = deck?.cards[this.index];
-    if (!deck || !card) { this.root.append(el('p','No hay más tarjetas por repasar.'), button('Volver a la biblioteca',()=>{ this.mode='library';this.render(); })); return; }
-    const wrap = el('div'); wrap.className = 'sv-study-review';
-    wrap.append(el('p', `${this.index+1} / ${deck.cards.length}`));
-    const paper=el('article',this.revealed?card.answer:card.question);paper.className='sv-study-card';wrap.append(paper);
-    if (!this.revealed) wrap.append(button('Revelar respuesta',()=>{this.revealed=true;this.render();},true));
-    else for (const [mark,label] of [['mastered','Lo sabía'],['review','Repasar']] as const) wrap.append(button(label,()=>{this.progress[`${deck.id}:${card.id}`]=mark;localStorage.setItem('studyvillage-review-v2',JSON.stringify(this.progress));this.index++;this.revealed=false;this.render();}));
-    this.root.append(wrap);
-  }
-  private quiz(): void {
-    const actor=this.ctx.actor(); const v=this.ctx.room.current();
-    if (!v) { this.root.append(el('p','Conectando con el anfitrión…')); return; }
-    if (v.phase==='lobby') {
-      if (v.stopped) this.root.append(el('p','El anfitrión terminó la partida.'));
-      if (actor.isHost) {
-        const select=el('select'); const decks=this.ctx.gateway.listDecks(actor.id,true);
-        for(const d of decks){const o=el('option',`${d.title} · ${d.cards.filter(c=>c.choices).length} preguntas de concurso`);o.value=d.id;select.append(o);}
-        this.root.append(field('Mazo para jugar',select));
-        const advanced=el('details');advanced.append(el('summary','Opciones de partida'));const seconds=el('select');for(const [value,label] of [['20','20 segundos'],['30','30 segundos'],['60','60 segundos'],['0','Sin tiempo']]){const o=el('option',label);o.value=value;seconds.append(o);}advanced.append(field('Tiempo por pregunta',seconds));this.root.append(advanced);
-        this.root.append(button('Comenzar partida',()=>this.run(()=>{const deck=this.ctx.gateway.getDeck(select.value);if(!deck)throw new Error('Crea primero un mazo con opciones de concurso.');this.ctx.room.mutate(engine=>{engine.setDeck(deck);return true;});this.ctx.room.act({kind:'start',seconds:Number(seconds.value)});}),true));
-      } else this.root.append(button('Entrar en la partida',()=>this.ctx.room.act({kind:'join',name:actor.displayName}),true),el('p','Espera a que el anfitrión comience.'));
-      this.root.append(el('p',`${v.players.length} participantes`));
-    } else if (v.question) {
-      this.root.append(el('h3',v.question.text));
-      if (v.phase==='question') { const timer = el('p', v.timed ? `${Math.ceil(v.remainingMs/1000)} s` : 'Sin límite de tiempo.'); if (v.timed) timer.dataset.quizDeadline = String(Date.now()+v.remainingMs); this.root.append(timer); v.question.choices.forEach((choice,index)=>{const b=button(choice,()=>this.ctx.room.act({kind:'answer',questionId:v.question!.id,choice:index}));b.disabled=actor.isHost||v.meAnswered;this.root.append(b);}); }
-      else {this.root.append(el('p',`Respuesta: ${v.question.choices[v.solution!]}`));if(actor.isHost)this.root.append(button('Siguiente',()=>this.ctx.room.act({kind:'next'}),true));}
-    } else this.root.append(el('h3','Partida terminada'));
-    if(v.phase!=='question'){const list=el('ol');for(const p of v.players)list.append(el('li',`${p.name} · ${p.score} puntos`));this.root.append(list);}
-    if(actor.isHost&&v.phase!=='lobby'){let armed=false;const stop=button('Terminar partida',()=>{if(!armed){armed=true;stop.textContent='¿Terminar para todos?';return;}this.ctx.room.stop();});this.root.append(stop);}
-  }
-  private aiSettings(parent: HTMLElement): void {
-    const actor=this.ctx.actor();const cfg=this.ctx.gateway.getConfig();const status=this.ctx.gateway.getStatus();
-    parent.append(el('p',status.reachable?'Ollama conectado.':'IA opcional. Puedes crear y repasar sin configurarla.'));
-    if(!actor.isHost){parent.append(el('p','La IA local la configura el anfitrión.'));return;}
-    const models=el('select');models.setAttribute('aria-label','Modelo Ollama');for(const model of status.availableModels){const o=el('option',model);o.value=model;models.append(o);}models.value=cfg.selectedModel;
-    models.onchange=()=>{this.ctx.gateway.configure({selectedModel:models.value},true);};parent.append(models);
-    const probe=button('Detectar Ollama',()=>{if(this.busy)return;this.busy=true;probe.disabled=true;void this.ctx.gateway.probeOllamaModels().then(status=>{if(status.reachable){this.ctx.gateway.configure({enabled:true,selectedModel:status.availableModels[0]??''},true);}else this.error='No se pudo conectar con Ollama.';}).catch(e=>{this.error=String(e);}).finally(()=>{this.busy=false;this.render();});});parent.append(probe,button('Desactivar IA',()=>{this.ctx.gateway.configure({enabled:false},true);this.ctx.gateway.cancelActiveRequests(true);this.ctx.bots?.disable();this.render();}));
-  }
-  private aiCreator(parent: HTMLElement, deck: FlashcardDeck): void {
-    this.aiSettings(parent);
-    if (!this.ctx.actor().isHost) return;
-    const material=el('textarea');material.maxLength=8000;
-    const count=el('input');count.type='number';count.min='1';count.max='12';count.value='5';
-    parent.append(field('Material de estudio',material),field('Número de tarjetas',count));
-    const generate=button('Generar tarjetas',()=>{const actor=this.ctx.actor();if(this.busy)return;if(!material.value.trim()){this.error='Añade el material que quieres estudiar.';this.render();return;}this.busy=true;generate.disabled=true;const generation=this.generation;
-      void this.ctx.gateway.generateFlashcardDeck({requesterId:actor.id,isHost:actor.isHost,sourceType:'selection',topic:deck.topic,content:material.value,count:Number(count.value),difficulty:'mixed',style:'concise',includeHints:false,includeExplanations:false}).then(result=>{if(generation!==this.generation)return;const current=this.ctx.gateway.getDeck(deck.id);if(current)this.ctx.gateway.saveDeck({...current,cards:[...current.cards,...result.cards].slice(0,100),updatedAt:Date.now()});}).catch(e=>{this.error=e instanceof Error?e.message:'No se pudo generar.';}).finally(()=>{this.busy=false;if(generation===this.generation)this.render();});});parent.append(generate);
-  }
+  const create=button('',()=>{if(body.querySelector('form'))return;const form=el('form','','sv-study-form');const name=el('input');name.maxLength=60;name.required=true;const error=el('p','','sv-feedback is-error');error.hidden=true;error.setAttribute('role','alert');const commit=button(msg('Crear cuaderno'),()=>{});commit.type='submit';form.append(field(msg('Nombre del cuaderno'),name),error,commit,button(msg('Cancelar'),()=>form.remove()));form.onsubmit=e=>{e.preventDefault();try{if(!name.value.trim())throw new AppError('invalid','Escribe un nombre para tu cuaderno.');const book=this.ctx.notes.createNotebook(name.value.trim(),'local-owner');this.notesPanel.openNotebook(book.id);this.go('notebook');}catch(e){error.textContent=errorMessage(e);error.hidden=false;}};body.append(form);name.focus();});
+  create.className='sv-notebook-cover is-create';setDisplayAttribute(create, 'aria-label', msg('Nuevo cuaderno'));create.append(studySprite('create'),el('strong',msg('Nuevo cuaderno')));grid.append(create);body.append(grid);
+ }
+ private empty(body:HTMLElement,text:DisplayText,label:DisplayText,fn:()=>void):void{const empty=el('div','','sv-study-empty');empty.append(studySprite('create'),el('p',text),button(label,fn,true));body.append(empty);}
+ private decks(body:HTMLElement):void{
+  const decks=this.ctx.library.listDecks();if(!decks.length){this.empty(body,msg('Aquí aparecerán tus mazos de flashcards.'),msg('Crear mi primer mazo'),()=>{this.deckId=null;this.go('edit');});return;}
+  body.append(button(msg('Crear mazo'),()=>{this.deckId=null;this.go('edit');}));const grid=el('div','','sv-study-library');
+  for(const deck of decks){const card=el('article','','sv-study-card');card.append(studySprite('cards',86),el('h3',defaultMsg(deck.title)),el('p',msg("{p0} tarjetas · {p1} aprendidas", { p0: deck.cards.length, p1: deck.cards.filter(c=>this.progress[`${deck.id}:${c.id}`]==='mastered').length })));const review=button(msg('Repasar'),()=>{this.deckId=deck.id;this.index=0;this.revealed=false;this.go('review');},true);review.disabled=!deck.cards.length;card.append(review,button(msg('Editar'),()=>{this.deckId=deck.id;this.go('edit');}));grid.append(card);}body.append(grid);
+ }
+ private input(label:DisplayText,value:string,max:number,parent:HTMLElement,area=false):HTMLInputElement|HTMLTextAreaElement{
+  const input=area?el('textarea'):el('input');input.value=value;input.maxLength=max;parent.append(field(label,input));return input;
+ }
+ private required(input:HTMLInputElement|HTMLTextAreaElement,message:string):string{input.removeAttribute('aria-invalid');if(!input.value.trim()){input.setAttribute('aria-invalid','true');input.focus();throw new AppError('invalid',message);}return input.value.trim();}
+ private createTitle(body:HTMLElement,quiz:boolean):void{
+  const form=el('form','','sv-study-form');const title=this.input(quiz ? msg('Nombre del quiz') : msg('Nombre del mazo'),'',110,form);const submit=button(msg('Crear'),()=>{} ,true);submit.type='submit';form.append(submit);form.onsubmit=e=>{e.preventDefault();this.run(()=>{const name=this.required(title,'Escribe un nombre para empezar.');if(quiz)this.quizId=this.ctx.library.saveQuiz({id:crypto.randomUUID(),title:name,questions:[],updatedAt:Date.now()}).id;else this.deckId=this.ctx.library.createManualDeck({title:name,ownerId:'local-host',visibility:'private'}).id;});};body.append(form);
+ }
+ private rename(form:HTMLElement,title:string,save:(title:string)=>void):void{
+  const name=this.input(msg('Nombre'),title,110,form);const update=button(msg('Guardar nombre'),()=>this.run(()=>save(this.required(name,'Escribe un nombre.'))));form.append(update);
+ }
+ private deckEditor(body:HTMLElement):void{
+  const deck=this.deckId?this.ctx.library.getDeck(this.deckId):null;if(!deck){this.createTitle(body,false);return;}
+  const form=el('div','','sv-study-form');this.rename(form,deck.title,title=>this.ctx.library.renameDeck(deck.id,title,this.ctx.actor().id,true));
+  const list=el('div','','sv-study-items');for(const [index,card]of deck.cards.entries()){
+   const row=el('article','','sv-study-card');row.append(el('strong',`${index+1}. ${defaultText(card.question)}`),button(msg('Editar'),()=>this.cardEditor(form,deck,card)));
+   const more=el('details');more.append(el('summary',msg('Más')));for(const [label,action]of [['Subir',()=>this.ctx.library.reorderCard(deck.id,card.id,'up',this.ctx.actor().id,true)],['Bajar',()=>this.ctx.library.reorderCard(deck.id,card.id,'down',this.ctx.actor().id,true)],[msg('Eliminar tarjeta'),()=>this.ctx.library.deleteCard(deck.id,card.id,this.ctx.actor().id,true)]]as const)more.append(button(L(label),()=>this.run(action)));row.append(more);list.append(row);
+  }form.append(list);this.cardEditor(form,deck);this.aiCreator(form,'flashcards',deck.id);
+  this.deleteMenu(form,msg('Eliminar mazo'),()=>{this.ctx.library.deleteDeck(deck.id,this.ctx.actor().id,true);this.mode='decks';});body.append(form);
+ }
+ private cardEditor(parent:HTMLElement,deck:FlashcardDeck,existing?:FlashcardItem):void{
+  parent.querySelector('[data-card-editor]')?.remove();const form=el('div','','sv-study-form sv-study-editor');form.dataset.cardEditor='true';form.append(el('h3',existing ? msg('Editar tarjeta') : msg('Nueva tarjeta')));
+  const question=this.input(msg('Pregunta'),existing?.question||'',260,form,true);const answer=this.input(msg('Respuesta'),existing?.answer||'',400,form,true);
+  const more=el('details');more.append(el('summary',msg('Detalles opcionales')));const hint=this.input(msg('Pista'),existing?.hint||'',220,more);const tags=this.input(msg('Etiquetas (separadas por comas)'),existing?.tags.join(', ')||'',260,more);const difficulty=el('select');for(const [value,label]of [['easy',msg('Fácil')],['medium',msg('Media')],['hard',msg('Difícil')]]){const o=el('option',label);o.value=String(value);difficulty.append(o);}difficulty.value=existing?.difficulty||'medium';more.append(field(msg('Dificultad'),difficulty));form.append(more);
+  form.append(button(existing ? msg('Guardar tarjeta') : msg('Añadir tarjeta'),()=>this.run(()=>{
+   const current=this.ctx.library.getDeck(deck.id)!;if(!existing&&current.cards.length>=100)throw new AppError('invalid','Este mazo ya tiene 100 tarjetas. Crea otro para continuar.');
+   const card:FlashcardItem={...existing,id:existing?.id||crypto.randomUUID(),question:this.required(question,'Escribe la pregunta de la tarjeta.'),answer:this.required(answer,'Escribe la respuesta de la tarjeta.'),hint:hint.value.trim(),tags:tags.value.split(',').map(t=>t.trim()).filter(Boolean).slice(0,8),difficulty:difficulty.value as FlashcardItem['difficulty'],topic:current.topic};
+   if(card.tags.some(t=>t.length>32))throw new AppError('invalid','Cada etiqueta puede tener hasta 32 caracteres.');
+   this.ctx.library.saveDeck({...current,cards:existing?current.cards.map(c=>c.id===card.id?card:c):[...current.cards,card],updatedAt:Date.now()});
+  }),true));parent.append(form);if(existing)question.focus();
+ }
+ private deleteMenu(parent:HTMLElement,label:DisplayText,remove:()=>void):void{const more=el('details');more.append(el('summary',msg('Opciones')));const b=button(label,()=>{b.replaceWith(button(msg('Confirmar eliminación'),()=>this.run(remove)),button(msg('Cancelar'),()=>this.render()));});more.append(b);parent.append(more);}
+ private review(body:HTMLElement):void{
+  const deck=this.deckId?this.ctx.library.getDeck(this.deckId):null;const card=deck?.cards[this.index];const wrap=el('div','','sv-study-review');
+  if(!deck||!card){wrap.append(el('h3',msg('¡Repaso terminado!')),el('p',msg('Cada vuelta cuenta. Vuelve cuando quieras.')),button(msg('Volver a mis mazos'),()=>this.go('decks'),true));body.append(wrap);return;}
+  wrap.append(el('p',`${this.index+1} / ${deck.cards.length}`),el('article',defaultMsg(this.revealed?card.answer:card.question),'sv-study-card'));
+  if(!this.revealed)wrap.append(button(msg('Revelar respuesta'),()=>{this.revealed=true;this.render();},true));else for(const [mark,label]of [['mastered',msg('Lo sabía')],['review',msg('Repasar')]]as const)wrap.append(button(L(label),()=>this.run(()=>{const progress={...this.progress,[`${deck.id}:${card.id}`]:mark};try{localStorage.setItem('studyvillage-review-v2',JSON.stringify(progress));}catch{throw new AppError('storage');}this.progress=progress;this.index++;this.revealed=false;})));body.append(wrap);
+ }
+ private quizzes(body:HTMLElement):void{
+  if(this.ctx.library.loadError){this.fail(new AppError('storage',this.ctx.library.loadError));return;}
+  if(this.ctx.actor().online&&!this.ctx.room.canLead())body.append(button(msg('Unirme al concurso de la aldea'),()=>{this.solo=null;this.go('group');this.ctx.room.act({kind:'join',name:this.ctx.actor().displayName});}));
+  const quizzes=this.ctx.library.listQuizzes();if(!quizzes.length){this.empty(body,msg('Aquí aparecerán tus quizzes.'),msg('Crear mi primer quiz'),()=>{this.quizId=null;this.go('quiz-edit');});return;}
+  body.append(button(msg('Crear quiz'),()=>{this.quizId=null;this.go('quiz-edit');}));const grid=el('div','','sv-study-library');
+  for(const quiz of quizzes){const card=el('article','','sv-study-card');card.append(studySprite('quiz',86),el('h3',defaultMsg(quiz.title)),el('p',msg("{p0} preguntas", { p0: quiz.questions.length })));const play=button(msg('Jugar'),()=>{this.quizId=quiz.id;this.go('quiz-mode');},true);play.disabled=!quiz.questions.length;card.append(play,button(msg('Editar'),()=>{this.quizId=quiz.id;this.go('quiz-edit');}));grid.append(card);}body.append(grid);
+
+ }
+ private quizEditor(body:HTMLElement):void{
+  const quiz=this.quizId?this.ctx.library.getQuiz(this.quizId):null;if(!quiz){this.createTitle(body,true);return;}
+  const form=el('div','','sv-study-form');this.rename(form,quiz.title,title=>this.ctx.library.saveQuiz({...quiz,title,updatedAt:Date.now()}));
+  for(const [index,q]of quiz.questions.entries()){
+   const row=el('article','','sv-study-card');row.append(el('strong',`${index+1}. ${defaultText(q.text)}`),button(msg('Editar'),()=>this.questionEditor(form,quiz,q)));const more=el('details');more.append(el('summary',msg('Más')));more.append(button(msg('Eliminar pregunta'),()=>this.run(()=>{this.ctx.library.saveQuiz({...quiz,questions:quiz.questions.filter(x=>x.id!==q.id),updatedAt:Date.now()});})));for(const [label,delta]of [['Subir',-1],['Bajar',1]]as const){const b=button(msg(label),()=>this.run(()=>{const questions=[...quiz.questions];[questions[index],questions[index+delta]]=[questions[index+delta],questions[index]];this.ctx.library.saveQuiz({...quiz,questions,updatedAt:Date.now()});}));b.disabled=index+delta<0||index+delta>=quiz.questions.length;more.append(b);}row.append(more);form.append(row);
+  }this.questionEditor(form,quiz);this.aiCreator(form,'quizzes',quiz.id);this.deleteMenu(form,msg('Eliminar quiz'),()=>{this.ctx.library.deleteQuiz(quiz.id);this.mode='quiz-library';});body.append(form);
+ }
+ private questionEditor(parent:HTMLElement,quiz:QuizDefinition,existing?:QuizQuestion):void{
+  parent.querySelector('[data-question-editor]')?.remove();const form=el('div','','sv-study-form sv-study-editor');form.dataset.questionEditor='true';form.append(el('h3',existing ? msg('Editar pregunta') : msg('Nueva pregunta')));const text=this.input(msg('Pregunta'),existing?.text||'',260,form,true);
+  const options=el('div','','sv-quiz-editor-options');let correct=existing?.correctChoice??0;
+  const inputs=Array.from({length:4},(_,i)=>{const row=el('div','','sv-quiz-editor-row');const radio=el('input');radio.type='radio';radio.name=`correct-${quiz.id}`;radio.checked=i===correct;setDisplayAttribute(radio, 'aria-label', msg("La respuesta {p0} es correcta", { p0: i+1 }));radio.onchange=()=>{correct=i;};const input=this.input(msg("Respuesta {p0}{p1}", { p0: i+1, p1: i>1?' (opcional)':'' }),existing?.choices[i]||'',120,row);row.prepend(radio);options.append(row);return input;});form.append(el('p',msg('Marca el círculo de la respuesta correcta. Completa al menos dos respuestas.')),options);
+  const more=el('details');more.append(el('summary',msg('Explicación opcional')));const explanation=this.input(msg('Explicación'),existing?.explanation||'',400,more,true);form.append(more);
+  form.append(button(existing ? msg('Guardar pregunta') : msg('Añadir pregunta'),()=>this.run(()=>{const question=this.required(text,'Escribe la pregunta del quiz.');const values=inputs.map(i=>i.value.trim());if(!values[0]||!values[1])throw new AppError('invalid','Completa al menos las dos primeras respuestas.');if(!values[correct])throw new AppError('invalid','La respuesta marcada como correcta está vacía.');const nonempty=values.filter(Boolean);if(new Set(nonempty).size!==nonempty.length)throw new AppError('invalid','Escribe respuestas diferentes.');const q:QuizQuestion={id:existing?.id||crypto.randomUUID(),text:question,choices:nonempty,correctChoice:values.slice(0,correct).filter(Boolean).length,explanation:explanation.value.trim()};const current=this.ctx.library.getQuiz(quiz.id)!;if(!existing&&current.questions.length>=100)throw new AppError('invalid','Este quiz ya tiene 100 preguntas.');this.ctx.library.saveQuiz({...current,questions:existing?current.questions.map(x=>x.id===q.id?q:x):[...current.questions,q],updatedAt:Date.now()});}),true));parent.append(form);if(existing)text.focus();
+ }
+ private playMode(body:HTMLElement):void{
+  const quiz=this.quizId?this.ctx.library.getQuiz(this.quizId):null;if(!quiz)return;
+  body.append(el('h3',defaultMsg(quiz.title)));const seconds=el('select');for(const [value,label]of [['0',msg('Sin tiempo')],['20',msg('20 segundos')],['30',msg('30 segundos')],['60',msg('60 segundos')]]){const o=el('option',label);o.value=String(value);seconds.append(o);}const options=el('details');options.append(el('summary',msg('Tiempo por pregunta')),field(msg('Tiempo'),seconds));body.append(options);
+  body.append(button(msg('Practicar solo'),()=>{this.solo=new StudyQuiz(this.ctx.actor().id);this.solo.setQuiz(quiz);this.solo.apply(this.ctx.actor().id,{kind:'join',name:this.ctx.actor().displayName},Date.now());this.solo.apply(this.ctx.actor().id,{kind:'start',seconds:Number(seconds.value)},Date.now());this.go('play');},true));
+  if(this.ctx.actor().online){const leads=this.ctx.room.canLead();body.append(button(leads ? msg('Crear concurso en la aldea') : msg('Unirme al concurso de la aldea'),()=>this.run(()=>{this.solo=null;if(leads)this.ctx.room.command('study.setQuiz',quiz);this.ctx.room.act({kind:'join',name:this.ctx.actor().displayName});this.go('group');})));}else body.append(el('p',msg('Para jugar en grupo, abre una aldea o únete a una desde Menú → Aldea.')));
+ }
+ private play(body:HTMLElement):void{
+  const actor=this.ctx.actor();const view=this.solo?this.solo.viewFor(actor.id,Date.now()):this.ctx.room.current();if(!view){body.append(el('p',msg('Preparando el concurso…')));return;}
+  const send=(a:QuizAction)=>{if(this.solo){this.run(()=>this.solo!.apply(actor.id,a,Date.now()));}else this.ctx.room.act(a);};
+  const wrap=el('div','','sv-study-session');wrap.append(el('h3',view.title ? defaultMsg(view.title) : msg('Concurso de la aldea')));
+  if(view.phase==='lobby'){
+   if(view.stopped)wrap.append(el('p',msg('El concurso ha terminado. Puedes empezar otro cuando quieras.')));
+   wrap.append(el('p',msg("{p0} participantes", { p0: view.players.length })));
+   if(!view.players.some(p=>p.id===actor.id))wrap.append(button(msg('Unirme'),()=>send({kind:'join',name:actor.displayName}),true));
+   if(actor.isHost){const seconds=el('select');for(const [value,label]of [['20',msg('20 segundos')],['30',msg('30 segundos')],['60',msg('60 segundos')],['0',msg('Sin tiempo')]]){const o=el('option',label);o.value=String(value);seconds.append(o);}seconds.value=String(this.groupSeconds);seconds.onchange=()=>{this.groupSeconds=Number(seconds.value);};wrap.append(field(msg('Tiempo por pregunta'),seconds));const start=button(msg('Comenzar concurso'),()=>{this.mode='play';send({kind:'start',seconds:Number(seconds.value)});},true);start.disabled=!view.count||view.players.length<2;wrap.append(start,el('p',view.count ? msg('Espera a que se una al menos otra persona.') : msg('Elige un quiz desde tu biblioteca para abrir el concurso.')));}else wrap.append(el('p',msg('Espera a que el anfitrión comience.')));
+  }else if(view.question){
+   wrap.append(el('p',msg("Pregunta {p0} de {p1}", { p0: view.index+1, p1: view.count })),el('h2',defaultMsg(view.question.text)));
+   if(view.phase==='question'){const timer=el('p',view.timed ? msg("{p0} s", { p0: Math.ceil(view.remainingMs/1000) }) : msg('Sin límite de tiempo'));if(view.timed)timer.dataset.quizDeadline=String(Date.now()+view.remainingMs);wrap.append(timer);const choices=el('div','','sv-quiz-answers');view.question.choices.forEach((choice,index)=>{const b=button(defaultMsg(choice),()=>send({kind:'answer',questionId:view.question!.id,choice:index}));b.disabled=view.meAnswered;choices.append(b);});wrap.append(choices);if(view.meAnswered)wrap.append(el('p',msg('Respuesta enviada. Esperando al resto…'),'sv-feedback'));}
+   else{wrap.append(el('p',msg("Respuesta correcta: {p0}", { p0: defaultText(view.question.choices[view.solution!]) }),'sv-feedback'));if(view.explanation)wrap.append(el('p',defaultMsg(view.explanation)));if(this.solo||actor.isHost)wrap.append(button(msg('Siguiente'),()=>send({kind:'next'}),true));else wrap.append(el('p',msg('El anfitrión pasará a la siguiente pregunta.')));}
+  }else{wrap.append(el('h2',msg('¡Quiz terminado!')));if(this.solo)wrap.append(button(msg('Volver a jugar'),()=>this.go('quiz-mode'),true));else if(actor.isHost)wrap.append(button(msg('Elegir otro quiz'),()=>this.go('quiz-library'),true));}
+  if(view.phase!=='question'){const scores=el('ol','','sv-quiz-scores');for(const p of view.players)scores.append(el('li',msg("{p0} · {p1} puntos", { p0: defaultText(p.name), p1: p.score })));wrap.append(scores);}
+  if(!this.solo&&actor.isHost&&view.phase!=='lobby'){const more=el('details');more.append(el('summary',msg('Opciones del concurso')));const stop=button(msg('Terminar concurso'),()=>{stop.replaceWith(button(msg('Confirmar fin para todos'),()=>this.ctx.room.stop()));});more.append(stop);wrap.append(more);}body.append(wrap);
+ }
+ private aiCreator(parent:HTMLElement,feature:'flashcards'|'quizzes',id:string):void{
+  const panel=el('details');panel.dataset.aiFeature=feature;panel.hidden=!this.ctx.ai.isReady(feature);panel.append(el('summary',feature==='flashcards' ? msg('Crear tarjetas con IA') : msg('Crear preguntas con IA')));
+  const material=this.input(msg('Material de estudio'),'',8000,panel,true);const count=el('input');count.type='number';count.min='1';count.max='12';count.value='5';panel.append(field(msg('Cantidad'),count));
+  const preview=el('div','','sv-ai-preview');const status=el('p','','sv-feedback');status.setAttribute('role','status');status.hidden=true;
+  const generate=button(msg('Generar borrador'),()=>{const text=material.value.trim();if(!text){setDisplayText(status, msg('Añade el material que quieres estudiar.'));status.hidden=false;return;}const n=Number(count.value);if(!Number.isInteger(n)||n<1||n>12){setDisplayText(status, msg('Elige entre 1 y 12 preguntas.'));status.hidden=false;return;}const generation=this.generation;generate.disabled=true;status.hidden=false;setDisplayText(status, msg('Preparando un borrador…'));preview.replaceChildren();
+   void (feature==='flashcards'?this.ctx.ai.cards(text,n):this.ctx.ai.questions(text,n)).then(items=>{
+    if(generation!==this.generation)return;setDisplayText(status, msg('Revisa el borrador antes de añadirlo.'));for(const item of items)preview.append(el('article','question'in item ? `${item.question}\n${item.answer}` : msg("{p0}\n{p1}\nCorrecta: {p2}", { p0: item.text, p1: item.choices.join(' · '), p2: item.choices[item.correctChoice] }),'sv-study-card'));
+    preview.append(button(msg('Añadir a mi biblioteca'),()=>this.run(()=>{if(feature==='flashcards'){const deck=this.ctx.library.getDeck(id)!;if(deck.cards.length+items.length>100)throw new AppError('invalid','El mazo no puede tener más de 100 tarjetas.');this.ctx.library.saveDeck({...deck,cards:[...deck.cards,...items as FlashcardItem[]],updatedAt:Date.now()});}else{const quiz=this.ctx.library.getQuiz(id)!;if(quiz.questions.length+items.length>100)throw new AppError('invalid','El quiz no puede tener más de 100 preguntas.');this.ctx.library.saveQuiz({...quiz,questions:[...quiz.questions,...items as QuizQuestion[]],updatedAt:Date.now()});}}),true),button(msg('Descartar borrador'),()=>{preview.replaceChildren();status.hidden=true;}));
+   }).catch(e=>{if(generation===this.generation){status.textContent=errorMessage(e);status.hidden=false;this.fail(e);}}).finally(()=>{generate.disabled=false;});
+  });panel.append(generate,status,preview);parent.append(panel);
+ }
 }

@@ -1,3 +1,7 @@
+import { paintFurnitureFacing } from './facing';
+import { inlineFurnitureSprite } from './sprites';
+import { drawSpacePortal, type SpacePortal } from './space-draw';
+import { defaultText } from '../i18n';
 import type { Furniture, PublicHouse } from '../protocol/types';
 import { getFurnitureCustomColor, getFurnitureCustomSprite } from '../assets/custom-assets';
 import {
@@ -238,13 +242,14 @@ function paintFurniture(
   nearby: boolean,
   time: number,
   perItemSprite?: HTMLImageElement | null,
+  privateSpace = false,
 ): void {
   const { x, y, w, h } = furnitureRect(item);
   const wall = item.kind === 'frame' || item.kind === 'board';
   if (!wall) contactShadow(ctx, x + w / 2, y + h - 1, w * 0.46, 0.32);
 
-  const customSprite = perItemSprite || getFurnitureCustomSprite(item.kind);
-  const customColor = getFurnitureCustomColor(item.kind);
+  const customSprite = perItemSprite || inlineFurnitureSprite(item.sprite) || (privateSpace ? null : getFurnitureCustomSprite(item.kind));
+  const customColor = item.color ?? (privateSpace?null:getFurnitureCustomColor(item.kind));
   const baseEarth0 = customColor ? shade(customColor, -38) : earth0;
   const baseEarth1 = customColor ? shade(customColor, -22) : earth1;
   const baseEarth2 = customColor || earth2;
@@ -252,8 +257,11 @@ function paintFurniture(
   const baseEarth4 = customColor ? shade(customColor, 32) : earth4;
 
   if (customSprite) {
-    ctx.drawImage(customSprite, ipx(x), ipx(y), ipx(w), ipx(h));
-  } else {
+    if(item.rotation){
+      const fit=Math.min(w/customSprite.naturalWidth,h/customSprite.naturalHeight),dw=customSprite.naturalWidth*fit,dh=customSprite.naturalHeight*fit;
+      ctx.save();ctx.translate(x+w/2,y+h);if(item.rotation===180||item.rotation===270)ctx.scale(-1,1);ctx.drawImage(customSprite,-dw/2,-dh,dw,dh);ctx.restore();
+    }else ctx.drawImage(customSprite, ipx(x), ipx(y), ipx(w), ipx(h));
+  } else if(!paintFurnitureFacing(ctx,item,{x,y,w,h},baseEarth2)) {
     switch (item.kind) {
       case 'desk': {
         // Legs, apron, top with a lit front edge, monitor, lamp and papers.
@@ -365,6 +373,21 @@ function paintFurniture(
         fill(ctx, baseEarth3, x, y + h - 5, w, 4);
         break;
       }
+      case 'flashcards': {
+        // A small podium with card decks, like the library's flashcard station.
+        fill(ctx, shade(baseEarth0, -10), x + 6, y + 18, 6, h - 18);
+        fill(ctx, shade(baseEarth0, -10), x + w - 12, y + 18, 6, h - 18);
+        fill(ctx, baseEarth1, x, y + 6, w, 16);
+        fill(ctx, baseEarth3, x + 2, y + 6, w - 4, 3);
+        for (const cx of [x + 5, x + 19, x + 33]) {
+          fill(ctx, PALETTE.paper[3], cx, y + 9, 13, 9);
+          fill(ctx, ember2, cx + 2, y + 11, 9, 2);
+          fill(ctx, shade(PALETTE.paper[3], -18), cx, y + 17, 13, 1);
+        }
+        fill(ctx, PALETTE.paper[4], x + 21, y + 1, 11, 7);
+        fill(ctx, ember4, x + 23, y + 3, 7, 2);
+        break;
+      }
     }
   }
 
@@ -391,7 +414,7 @@ function paintFurniture(
   }
 
   if (item.publicAlias) {
-    const label = item.publicAlias.slice(0, 24);
+    const label = defaultText(item.publicAlias).slice(0, 24);
     ctx.font = '700 9px Inter, ui-sans-serif, system-ui, sans-serif';
     const width = Math.min(135, Math.ceil(ctx.measureText(label).width) + 16);
     plate(ctx, x + w / 2 - width / 2, y + h + 4, width, 15, 'rgba(251,244,226,0.95)', 'rgba(30,55,48,0.45)');
@@ -462,6 +485,8 @@ export function drawHouseInterior(
   dt = 0,
   nearbyId: string | null = null,
   perItemSprites?: ReadonlyMap<string, HTMLImageElement | null>,
+  entrances: readonly SpacePortal[] = [],
+  privateSpace = false,
 ): void {
   ctx.imageSmoothingEnabled = false;
   // Held at a single frame when the viewer asked for reduced motion.
@@ -483,7 +508,7 @@ export function drawHouseInterior(
   }
 
   // Hanging sign with the house name.
-  const label = house.name.slice(0, 28);
+  const label = defaultText(house.name).slice(0, 28);
   ctx.font = '700 12px Inter, ui-sans-serif, system-ui, sans-serif';
   const signW = Math.max(150, Math.min(300, Math.ceil(ctx.measureText(label).width) + 40));
   const signX = 384 - signW / 2;
@@ -493,19 +518,14 @@ export function drawHouseInterior(
   text(ctx, label, 384, 26, PALETTE.paper[0], 12);
 
   const sprites: Sprite[] = [];
+  for(const portal of entrances)sprites.push({baseline:portal.y,paint:()=>drawSpacePortal(ctx,portal)});
   for (const item of house.furniture) {
     const rect = furnitureRect(item);
     const wallItem = item.kind === 'frame' || item.kind === 'board';
     const itemSprite = perItemSprites?.get(item.id) ?? null;
     sprites.push({
       baseline: wallItem ? rect.y : rect.y + rect.h,
-      paint: () => {
-        if (!item.rotation) { paintFurniture(ctx, item, item.id === selectedId, item.id === nearbyId, time, itemSprite); return; }
-        const base = furnitureRect({ ...item, rotation: 0 });
-        ctx.save(); ctx.translate(item.x + rect.w / 2, item.y + rect.h / 2); ctx.rotate(item.rotation * Math.PI / 180); ctx.translate(-base.w / 2, -base.h / 2);
-        paintFurniture(ctx, { ...item, x: 0, y: 0, rotation: 0, publicAlias: '' }, item.id === selectedId, item.id === nearbyId, time, itemSprite); ctx.restore();
-        if (item.publicAlias) text(ctx, item.publicAlias.slice(0,24), item.x+rect.w/2, item.y+rect.h+12, PALETTE.paper[0], 9);
-      },
+      paint: () => paintFurniture(ctx,item,item.id===selectedId,item.id===nearbyId,time,itemSprite,privateSpace),
     });
   }
   for (const person of people) {
@@ -536,7 +556,7 @@ export function drawHouseInterior(
   paintSceneFade(ctx, `house:${house.ownerId}`, W, H, '22,16,10');
 }
 
-export function drawFurniturePreview(ctx: CanvasRenderingContext2D, kind: Furniture['kind']): void {
+export function drawFurniturePreview(ctx: CanvasRenderingContext2D, kind: Furniture['kind'], rotation: Furniture['rotation']=0): void {
   ctx.clearRect(0, 0, 100, 90); ctx.imageSmoothingEnabled = false;
-  paintFurniture(ctx, { id: 'preview', kind, x: 12, y: 10, publicAlias: '' }, false, false, 0);
+  paintFurniture(ctx, { id: 'preview', kind, rotation, x: 12, y: 10, publicAlias: '' }, false, false, 0);
 }

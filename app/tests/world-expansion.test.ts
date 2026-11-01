@@ -27,16 +27,16 @@ describe('Part 2 & 3 — World Areas & Extensible Interactive Object System', ()
     expect(WORLD_AREAS.community.id).toBe('community');
     expect(WORLD_AREAS.study.id).toBe('study');
 
-    // Residential East portal leads to Community Plaza
-    const nearEastPortal = closestPortal('residential', { x: 745, y: 218, direction: 'right', moving: false });
+    // Residential north portal leads to Community Plaza
+    const nearEastPortal = closestPortal('residential', { x: 240, y: 60, direction: 'up', moving: false });
     expect(nearEastPortal?.toArea).toBe('community');
 
-    // Residential West portal leads to Study Library
-    const nearWestPortal = closestPortal('residential', { x: 20, y: 218, direction: 'left', moving: false });
+    // Residential south portal leads to Study Library
+    const nearWestPortal = closestPortal('residential', { x: 240, y: 392, direction: 'down', moving: false });
     expect(nearWestPortal?.toArea).toBe('study');
 
-    // Community West portal returns to Residential Village
-    const backFromCommunity = closestPortal('community', { x: 20, y: 218, direction: 'left', moving: false });
+    // Community south portal returns to Residential Village
+    const backFromCommunity = closestPortal('community', { x: 384, y: 395, direction: 'down', moving: false });
     expect(backFromCommunity?.toArea).toBe('residential');
   });
 

@@ -617,3 +617,58 @@
   display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none;
 }
 .sv-stage-pane .sv-touch-controls > * { pointer-events: auto; }
+
+/* Mobile layouts use viewport coordinates; the menu is permanently outside the editor. */
+.sv-mobile-device .sv-phone-button { position:fixed; top:max(12px, env(safe-area-inset-top)); right:max(12px, env(safe-area-inset-right)); bottom:auto; z-index:66; min-height:44px; }
+.sv-mobile-device .sv-touch-action-btn { min-height:58px; height:58px; min-width:96px; }
+.sv-mobile-device .sv-hud-round { min-width:58px; min-height:58px; }
+.sv-mobile-device .sv-hud-place { max-width:calc(100vw - 105px); }
+.sv-hud-editor { width:min(620px, calc(100vw - 20px)); }
+.sv-hud-layout-preview { position:relative; width:100%; max-height:48dvh; background:linear-gradient(#8aa388,#597c59); border:2px solid #5b7359; border-radius:12px; overflow:hidden; margin:12px 0; touch-action:none; }
+.sv-hud-preview-menu { position:absolute; right:8px; top:8px; border-radius:18px; padding:5px 9px; background:#ffcf5c; font-size:11px; pointer-events:none; }
+.sv-hud-preview-widget { position:absolute; transform:translate(-50%,-50%); touch-action:none; cursor:grab; outline:1px dashed #ffffff60; }
+.sv-hud-preview-widget.is-selected { outline:2px solid #ffe5a3; }
+.sv-hud-layout-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 14px; }
+.sv-hud-layout-fields label { display:grid; gap:5px; }
+.sv-hud-layout-fields input[type="range"] { width:100%; min-width:0; }
+.sv-hud-layout-fields input[type="color"] { width:48px; height:32px; }
+@media (max-width:420px) { .sv-hud-editor { padding:12px; } .sv-hud-layout-preview { max-height:40dvh; } }
+.sv-mobile-device .sv-touch-actions { display:contents; filter:none; transform:none; }
+.sv-mobile-device .sv-touch-action-btn { width:112px; min-width:112px; }
+.sv-media-tile.is-expanded-screen { position:fixed!important; inset:12px!important; z-index:100; width:auto!important; height:auto!important; background:#13231b; }
+.sv-media-tile.is-expanded-screen video { width:100%; max-height:calc(100dvh - 100px); object-fit:contain; }
+
+/* Touch UI should not start Android text selection on a long tap. */
+.sv-mobile-device .sv-app{-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+.sv-mobile-device .sv-app :is(input,textarea,[contenteditable="true"],pre,code){-webkit-user-select:text;user-select:text}
+.sv-hud-layout-preview{background-color:#708d6b;background-image:linear-gradient(#ffffff30 1px,transparent 1px),linear-gradient(90deg,#ffffff30 1px,transparent 1px);background-size:10% 10%}
+.sv-activity>.sv-game-voice{position:absolute;top:68px;right:16px;z-index:12;flex:none;width:auto;max-width:210px;min-height:34px;height:auto;padding:7px 11px;border-radius:12px;clip-path:none;box-shadow:0 2px 5px #0002;font:600 11px/1.3 var(--font-ui)}
+.sv-contact-row{flex-wrap:wrap;gap:10px}.sv-contact-row>.sv-input{flex-basis:100%;min-width:0;width:100%;min-height:44px}.sv-session-contacts .sv-contact-row{justify-content:space-between}
+/* Portrait phone: a large screen that follows the player above a short control deck.
+   Same dark palette as landscape. The camera transform is set by updatePortraitCamera() in app.ts. */
+.sv-portrait-zoom{display:none}
+@media(max-width:599px) and (orientation:portrait){
+ .sv-mobile-device .sv-stage-pane{display:block;padding:0}
+ .sv-mobile-device .sv-stage-pane::before{content:'';position:absolute;left:0;right:0;bottom:0;height:calc(34dvh + 10px);background:linear-gradient(180deg,#1d3527,#12221b);border-top:2px solid #2f5240;border-radius:24px 24px 0 0;pointer-events:none}
+ .sv-mobile-device .sv-stage-pane .sv-canvas-wrap{position:fixed;left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));top:calc(env(safe-area-inset-top,0px) + 72px);bottom:34dvh;width:auto;box-sizing:border-box;border:4px solid #0d1912;border-radius:14px;overflow:hidden;overflow:clip;background:#12221b;box-shadow:0 0 0 2px #2f5240,0 6px 18px #0008;z-index:1}
+ .sv-mobile-device .sv-stage-pane .sv-canvas{position:absolute;left:0;top:0;max-height:none;height:auto;will-change:transform}
+ .sv-mobile-device .sv-portrait-zoom{display:flex;align-items:center;gap:4px;position:absolute;right:6px;bottom:6px;z-index:2;padding:3px;border-radius:12px;background:#12221bcc}
+ .sv-mobile-device .sv-portrait-zoom .sv-button{min-width:34px;min-height:34px;padding:0;clip-path:none;border-radius:9px}
+ .sv-mobile-device .sv-portrait-zoom .sv-portrait-zoom-label{min-width:30px;text-align:center;color:#f3fbee;font:700 12px/1 var(--font-ui)}
+}
+.sv-hud-layout-preview.is-phone-portrait{background-color:#12221b}
+.sv-hud-layout-preview.is-phone-portrait::before{content:'';position:absolute;left:2%;right:2%;top:9%;bottom:34%;border:3px solid #2f5240;border-radius:7px;background:#4f7a4f;pointer-events:none}
+.sv-contact-share{display:none}.sv-mobile-device .sv-contact-share{display:inline-flex}
+.sv-board-back{display:none}
+.sv-mobile-device .sv-board-pane>.sv-board-back{display:inline-flex;align-items:center;justify-content:center;position:fixed;left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top));z-index:67;width:auto;max-width:calc(100vw - 110px);min-height:44px;margin:0;padding:10px 15px;border-radius:14px;white-space:nowrap;font:650 14px/1.3 var(--font-ui);clip-path:none;box-shadow:0 2px 5px #0002}
+.sv-mobile-device .is-board-focused .sv-hud-place{display:none!important}
+
+/* Notices sit above the HUD, touch controls and open activities, and are always closable. */
+.sv-notice.sv-hud-toast{position:fixed;z-index:90}
+.sv-notice-close{min-width:44px;min-height:44px;display:inline-grid;place-items:center;flex:none;cursor:pointer;font-size:1.3rem!important;line-height:1;touch-action:manipulation}
+.sv-approval-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-6px -6px 2px 0}
+.sv-approval-head .sv-approval-title{margin:0}
+.sv-approval-head .sv-icon-button{color:var(--bark-dim);background:transparent;border:0}
+.sv-mobile-device .sv-notice.sv-hud-toast{top:calc(env(safe-area-inset-top,0px) + 66px);bottom:auto;max-width:calc(100vw - 24px);padding:6px 6px 6px 16px}
+@keyframes sv-pop-top{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
+.sv-mobile-device .sv-notice.sv-hud-toast{animation-name:sv-pop-top}

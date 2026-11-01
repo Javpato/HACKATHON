@@ -145,6 +145,21 @@ describe('Gartic Phone', () => {
     expect(seen.size).toBe(4);
   });
 
+  it('starts with two people and still plays write, draw, guess, draw', () => {
+    const solo = room(1);
+    expect(() => solo.apply('p0', { kind: 'start' }, 0)).toThrow(/2/);
+    const game = room(2);
+    game.apply('p0', { kind: 'start' }, 0);
+    const drawing = { strokes: [{ c: '#ff0000', w: 6, p: [10, 10, 100, 100] }] };
+    const kinds: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      kinds.push(game.viewFor('p0', 0).task!.kind);
+      for (let i = 0; i < 2; i++) { const task = game.viewFor(`p${i}`, 0).task!; game.apply(`p${i}`, task.kind === 'draw' ? { kind: 'submit', drawing } : { kind: 'submit', text: `r${round}` }, 0); }
+    }
+    expect(kinds).toEqual(['write', 'draw', 'guess', 'draw']);
+    expect(game.phase).toBe('album');
+  });
+
   it('runs write, draw, guess, draw and opens the album page by page', () => {
     const game = room(3);
     game.apply('p0', { kind: 'start' }, 0);

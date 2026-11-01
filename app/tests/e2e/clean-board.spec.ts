@@ -17,8 +17,9 @@ for (const [device, width, height] of [['phone', 390, 844], ['iPad', 820, 1180],
     const more = page.getByRole('button', { name: 'Opciones avanzadas', exact: true });
     const options = page.getByRole('region', { name: 'Opciones avanzadas de pizarra' });
     const canvas = page.getByLabel('Pizarra para dibujar');
-    // Pencil, text, eraser and hand, then undo and «Más».
-    await expect(primary.getByRole('button')).toHaveCount(6);
+    // Pencil, text, eraser, select and hand, then undo and «Más».
+    await expect(primary.getByRole('button')).toHaveCount(7);
+    await expect(primary.getByRole('button', { name: 'Seleccionar', exact: true })).toBeVisible();
     await expect(primary.getByRole('button', { name: 'Mano', exact: true })).toBeVisible();
     await expect(more).toHaveAttribute('aria-expanded', 'false');
     await expect(options).not.toBeVisible();
@@ -38,10 +39,13 @@ for (const [device, width, height] of [['phone', 390, 844], ['iPad', 820, 1180],
     await expect(page.getByRole('button', { name: '↶ Deshacer' })).toBeEnabled();
     await expect.poll(pixels).not.toBe(empty);
     const drawn = await pixels();
+    const scroll = () => page.locator('.sv-board-pane').evaluate(e => ({ top:e.scrollTop, scroll:e.scrollHeight, client:e.clientHeight }));
+    const beforeScroll = await scroll(); expect(beforeScroll.scroll).toBeLessThanOrEqual(beforeScroll.client+1);
+    await page.mouse.move(5, height-10); await page.mouse.wheel(0, 700); expect((await scroll()).top).toBe(0);
     await more.click();
     await expect(options).toBeVisible();
     await expect(more).toHaveAttribute('aria-expanded', 'true');
-    await expect(options.locator('summary')).toHaveText(['Formas', 'Trazo y edición', 'Vista', 'Fórmulas', 'Asistente IA', 'Capas', 'Pizarra y archivo']);
+    await expect(options.locator('summary:visible')).toHaveText(['Formas', 'Trazo y edición', 'Vista', 'Fórmulas', 'Capas', 'Pizarra y archivo']);
     await expect(options.locator('details[open]')).toHaveCount(0);
     await expect(page.getByTestId('ai-board-prompt')).not.toBeVisible();
     await options.locator('summary', { hasText: 'Vista' }).click();
@@ -53,12 +57,11 @@ for (const [device, width, height] of [['phone', 390, 844], ['iPad', 820, 1180],
     await expect(options).not.toBeVisible();
     await expect(canvas).toBeVisible();
     await more.click();
+    if (!await page.getByTestId('board-tool-arrow').isVisible()) await options.locator('summary', { hasText: 'Formas' }).click();
     await page.getByTestId('board-tool-arrow').click();
     await expect(more).toContainText('Flecha');
-    await options.locator('summary', { hasText: 'Asistente IA' }).click();
-    await expect(page.getByTestId('ai-board-prompt')).toBeVisible();
-    await expect(page.getByTestId('board-tool-arrow')).not.toBeVisible();
-    await expect(options.locator('details[open]')).toHaveCount(1);
+    await expect(options.locator('summary', { hasText: 'Asistente IA' })).not.toBeVisible();
+    await expect(page.getByTestId('ai-board-prompt')).not.toBeVisible();
     await more.click();
     await expect(options).not.toBeVisible();
     await expect.poll(pixels).toBe(drawn);

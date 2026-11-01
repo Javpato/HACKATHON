@@ -98,7 +98,15 @@ test('drawing on the board marks the canvas and undo reverts exactly that stroke
   await expect.poll(async () => Buffer.compare(blank, await canvas.screenshot()) !== 0).toBe(true);
 
   await page.getByRole('button', { name: /Deshacer/ }).click();
-  await expect.poll(async () => Buffer.compare(blank, await canvas.screenshot()) === 0).toBe(true);
+  // No ink is left where the stroke was (byte-identical screenshots also catch 1-level anti-aliasing noise at the border).
+  const darkInStroke = () => page.evaluate(() => {
+    const el = document.querySelector('.sv-board-wrap canvas') as HTMLCanvasElement;
+    const d = el.getContext('2d')!.getImageData(0, 0, el.width, el.height).data;
+    let dark = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] < 300) dark += 1;
+    return dark;
+  });
+  await expect.poll(darkInStroke).toBe(0);
+  await expect(page.locator('.sv-board-pane').getByText('0 trazos en esta pizarra')).toBeAttached();
 });
 
 test.describe('with decorative motion suppressed', () => {
@@ -190,7 +198,7 @@ test.describe('whiteboard tools', () => {
     const undo = page.getByRole('button', { name: '↶ Deshacer' });
     const line = async (yLogic: number) => {
       const currentBox = (await canvas.boundingBox())!;
-      const py = currentBox.y + currentBox.height * (yLogic / 432);
+      const py = currentBox.y + currentBox.width * (yLogic / 768);
       const pxStart = currentBox.x + currentBox.width * (100 / 768);
       await page.mouse.move(pxStart, py);
       await page.mouse.down();
@@ -228,7 +236,10 @@ test.describe('whiteboard tools', () => {
     await page.mouse.down();
     await page.mouse.move(eraseX, box.y + box.height * (320 / 432), { steps: 6 });
     await page.mouse.up();
-    await expect(undo).toBeDisabled();
+    await expect(page.getByText('0 trazos en esta pizarra')).toBeAttached();
+    // Erasing is itself one undoable gesture.
+    await undo.click();
+    await expect(page.getByText('1 trazos en esta pizarra')).toBeAttached();
   });
 
   test('"Borrar lo mío" asks once more, then clears every stroke of yours', async ({ page }) => {
@@ -242,7 +253,7 @@ test.describe('whiteboard tools', () => {
     // First click only arms it; nothing is deleted yet.
     await expect(undo).toBeEnabled();
     await page.getByRole('button', { name: '¿Borrar todo lo tuyo?' }).click();
-    await expect(undo).toBeDisabled();
+    await expect(page.getByText('0 trazos en esta pizarra')).toBeAttached();
     await expect(page.locator('.sv-notice')).toContainText('Se borraron 2 trazo(s) tuyos');
   });
 
@@ -250,7 +261,7 @@ test.describe('whiteboard tools', () => {
     const { box, tool } = await openBoard(page);
     expect(await ink(page, 400, 150, 300, 120)).toBe(0);
     await tool('Texto');
-    await page.mouse.click(box.x + box.width * (420 / 768), box.y + box.height * (160 / 432));
+    await page.mouse.click(box.x + box.width * (420 / 768), box.y + box.width * (160 / 768));
     await page.locator('.sv-board-text').fill('$\\frac{a}{b} + \\sqrt{x}$');
     await page.keyboard.press('Enter');
     await expect(page.locator('.sv-board-text')).toHaveCount(0);
@@ -327,9 +338,9 @@ test.describe('Multiplayer pixel-art world expansion', () => {
       await expect(page.locator('.sv-touch-btn-label').last()).toContainText(label, { timeout: 10000 });
       await page.keyboard.up(key);
     };
-    await walkUntil('d', 'Ir a Plaza Comunitaria');
+    await walkUntil('w', 'Ir a Plaza Comunitaria');
     await page.keyboard.press('e');
-    await walkUntil('d', 'Hombres Lobo');
+    await walkUntil('w', 'Hombres Lobo');
     await page.keyboard.press('e');
     const activity = page.getByTestId('expansion-modal-overlay');
     await expect(activity).toBeVisible();
@@ -344,15 +355,15 @@ test.describe('Multiplayer pixel-art world expansion', () => {
     await page.getByTestId('expansion-modal-close').click();
     await expect(activity).toBeHidden();
 
-    await walkUntil('a', 'Volver al Barrio Residencial');
+    await walkUntil('s', 'Volver al Barrio Residencial');
     await page.keyboard.press('e');
-    await walkUntil('a', 'Ir a Biblioteca de Estudio');
+    await walkUntil('s', 'Ir a Biblioteca de Estudio');
     await page.keyboard.press('e');
-    await walkUntil('a', 'Flashcards');
+    await walkUntil('s', 'Flashcards');
     await page.keyboard.press('e');
-    const study = page.getByRole('region', { name: 'Tarjetas de estudio' });
+    const study = page.getByRole('region', { name: 'Estudio', exact: true });
     await expect(study).toBeVisible();
-    await expect(study.getByRole('button', { name: 'Crear mazo' })).toBeVisible();
+    await expect(study.getByRole('button', { name: /^Flashcards/ })).toBeVisible();
     await expect(study.getByRole('button', { name: 'Detectar Ollama' })).not.toBeVisible();
     await study.getByRole('button', { name: 'Cerrar', exact: true }).click();
 

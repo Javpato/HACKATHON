@@ -1,4 +1,4 @@
-import { getAvatarSheet } from '../assets/avatar-sheet';
+import { defaultText } from '../i18n';
 import type { Position, PublicIdentity } from '../protocol/types';
 
 /**
@@ -303,6 +303,8 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   const bob = moving ? -Math.abs(Math.sin(walk)) * 2 : breath;
   const squash = moving ? Math.abs(Math.cos(walk)) * 0.8 : 0;
   const facing = position.direction;
+  const side=facing==='left'||facing==='right';
+  const lead=facing==='right'?1:-1;
 
   const baseY = Math.round(y);
   contactShadow(ctx, Math.round(x), baseY + 5, 10 + squash, 0.32);
@@ -313,14 +315,6 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   // a glance. Presentation only: collision and movement are untouched.
   ctx.scale(1.16, 1.16);
 
-  const avatarSheet = (isOwn || options?.preview) && custom?.useCustomSheet !== false ? getAvatarSheet() : null;
-  if (avatarSheet) {
-    const row = { down: 0, left: 1, right: 2, up: 3 }[facing];
-    const col = moving ? Math.floor(walk * 2) % 3 : 1;
-    const sw = avatarSheet.naturalWidth / 3;
-    const sh = avatarSheet.naturalHeight / 4;
-    ctx.drawImage(avatarSheet, col * sw, row * sh, sw, sh, -14, -30, 28, 38);
-  } else {
   const pants = custom?.pantsColor || '#2c4238';
   // Legs swing in opposition; when idle they stand together.
   const swing = moving ? Math.round(stride * 2.4) : 0;
@@ -335,7 +329,14 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
 
   // Torso with a lit top-left face and a shaded bottom-right edge.
   const torsoY = -15 - Math.round(squash);
-  if (feminine) {
+  if(side){
+    // A profile torso has narrow shoulders, a waist, and a chest on the facing edge.
+    fill(ctx,shirtDark,-5,torsoY,10,16);
+    fill(ctx,shirt,-5,torsoY,feminine?8:9,14);
+    fill(ctx,shirtLit,-5,torsoY,7,3);
+    fill(ctx,shirtDark,lead>0?4:-6,torsoY+4,2,5);
+    if(feminine){fill(ctx,shirtDark,-5,torsoY+8,2,4);fill(ctx,shirt, -5,torsoY+12,9,3);}
+  } else if (feminine) {
     // Narrower shoulders, a waist and hips.
     fill(ctx, shirtDark, -7, torsoY, 14, 7);
     fill(ctx, shirtDark, -6, torsoY + 6, 12, 5);
@@ -351,9 +352,8 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   }
 
   // Arms track the opposite phase of the legs.
-  if (facing === 'left' || facing === 'right') {
-    const lead = facing === 'right' ? 1 : -1;
-    fill(ctx, shirtDark, (facing === 'right' ? 5 : -9) + (feminine ? (facing === 'right' ? -1 : 1) : 0), torsoY + 3 - swing * lead, feminine ? 3 : 4, 9);
+  if (side) {
+    fill(ctx,shade(shirt,-50),-2,torsoY+3+swing*lead,3,9);
   } else if (feminine) {
     fill(ctx, shirtDark, -10, torsoY + 3 + swing, 3, 9);
     fill(ctx, shirtDark, 7, torsoY + 3 - swing, 3, 9);
@@ -363,6 +363,14 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   }
 
   if (custom) drawClothing(ctx, custom, facing, torsoY, swing, shirt);
+  if(side){
+    const sleeve=custom?.jacket&&custom.jacket!=='none'?custom.jacketColor:shirt;
+    const armY=torsoY+3-swing*lead,armX=-2+Math.round(swing*.4)*lead;
+    fill(ctx,shade(sleeve,-20),armX,armY,4,8);fill(ctx,shade(sleeve,12),armX,armY,2,6);
+    fill(ctx,skin,armX,armY+8,3,3);
+    // Feet point along the stride, rather than across the viewer.
+    fill(ctx,shade(pants,-25),-3+swing*lead+(lead>0?0:-2),6-Math.abs(swing)/2,6,2);
+  }
 
   // Head, hair and a simple face.
   const headY = torsoY - 10;
@@ -449,13 +457,13 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
     if (facing === 'down') fill(ctx, '#24332d', -1, headY + 5, 2, 1);
   }
   if (accessory === 'headphones') {
-    fill(ctx, '#2d4b3e', -9, headY - 4, 18, 2);
-    fill(ctx, '#cf6f3c', -10, headY + 1, 3, 6); fill(ctx, '#cf6f3c', 7, headY + 1, 3, 6);
+    const headphoneColor=custom?.headphonesColor??'#cf6f3c';
+    fill(ctx, shade(headphoneColor,-45), -9, headY - 4, 18, 2);
+    fill(ctx, headphoneColor, -10, headY + 1, 3, 6); fill(ctx, headphoneColor, 7, headY + 1, 3, 6);
   }
   const headwear = custom?.headwear ?? (accessory === 'hat' ? 'explorer' : 'none');
   drawHeadwear(ctx, headwear, custom?.headwearColor || '#a77b50', facing, headY);
 
-  }
   if (isOwn) {
     // A soft arc under the owner instead of a hard selection box.
     ctx.strokeStyle = 'rgba(255,240,200,0.85)';
@@ -467,7 +475,7 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
   ctx.restore();
 
   if (options?.preview) return;
-  const name = identity.displayName.slice(0, 18);
+  const name = defaultText(identity.displayName).slice(0, 18);
   ctx.font = '700 9.5px Inter, ui-sans-serif, system-ui, sans-serif';
   const width = Math.min(145, Math.ceil(ctx.measureText(name).width) + 18);
   const plateY = baseY - (custom?.headwear && custom.headwear !== 'none' ? 60 : 54);
@@ -480,6 +488,20 @@ export function drawAvatar(ctx: CanvasRenderingContext2D, x: number, y: number, 
 }
 
 function drawClothing(ctx: CanvasRenderingContext2D, look: AvatarCustomization, facing: Position['direction'], y: number, swing: number, shirt: string): void {
+  if(facing==='left'||facing==='right'){
+    const lead=facing==='right'?1:-1,edge=lead>0?3:-5;
+    if(look.outfit==='hoodie'){fill(ctx,shade(shirt,-35),lead>0?-6:3,y,3,6);fill(ctx,shade(shirt,-20),edge,y+10,3,3);}
+    else if(look.outfit==='suit'){fill(ctx,'#fff4dc',edge,y+1,2,5);fill(ctx,shade(shirt,28),edge,y+5,2,5);}
+    else if(look.outfit==='overalls'){fill(ctx,look.pantsColor,-3,y+6,6,10);fill(ctx,look.pantsColor,edge,y+1,2,9);fill(ctx,'#e5ba69',edge,y+6,1,2);}
+    else if(look.outfit==='dress'){fill(ctx,shirt,-6,y+10,12,9);fill(ctx,shade(shirt,24),-6,y+17,10,2);fill(ctx,'#edce8a',-5,y+9,10,2);}
+    else if(look.outfit==='sporty')fill(ctx,'#f4eddf',edge,y+3,2,9);
+    if(look.jacket!=='none'){
+      const color=look.jacketColor,length=look.jacket==='coat'?24:16;
+      fill(ctx,shade(color,-20),-5,y,11,length);fill(ctx,color,-5,y,9,length-1);fill(ctx,shade(color,24),-5,y,8,3);
+      fill(ctx,shade(color,-30),edge,y+4,2,length-4);for(let i=7;i<length-2;i+=5)fill(ctx,'#d9b77a',edge,y+i,1,1);
+    }
+    return;
+  }
   const front = facing !== 'up';
   if (look.outfit === 'hoodie') {
     fill(ctx, shade(shirt, -30), -6, y, 12, 5);
@@ -505,8 +527,7 @@ function drawClothing(ctx: CanvasRenderingContext2D, look: AvatarCustomization, 
     if(look.jacket==='coat')fill(ctx,shade(jacket,-25),-3,y+15,6,9);
     for(let i=7;i<length-1;i+=5)fill(ctx,'#d9b77a',3,y+i,1,1);
   }
-  if(facing==='left'||facing==='right')fill(ctx,shade(jacket,-18),facing==='right'?5:-9,y+3-swing*(facing==='right'?1:-1),4,10);
-  else {fill(ctx,jacket,-11,y+3+swing,4,10);fill(ctx,shade(jacket,-18),7,y+3-swing,4,10);}
+  fill(ctx,jacket,-11,y+3+swing,4,10);fill(ctx,shade(jacket,-18),7,y+3-swing,4,10);
 }
 
 function drawHeadwear(ctx: CanvasRenderingContext2D, kind: AvatarCustomization['headwear'], color: string, facing: Position['direction'], y: number): void {

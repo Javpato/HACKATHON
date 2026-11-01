@@ -1,0 +1,1 @@
+10be38a64659b6d4906764e8764d9ac0cec7026f3b583f51f2a530847ab28e9d  deliverables/windows/StudyVillage_0.1.0_x64-setup.exe

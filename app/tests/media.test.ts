@@ -90,17 +90,17 @@ describe('media lifecycle with explicitly FAKE devices and streams', () => {
     manager.suspend(); release(screen.stream); await requesting;
     expect(screen.track.stopped).toBe(true); expect(transport.sent).toHaveLength(0); expect(manager.view.localScreen).toBeNull(); manager.dispose();
   });
-  it('keeps the mic when entering a chosen private call, and revokes it when leaving for a wider room', async () => {
+  it('revokes capture when switching into a private channel or returning to location voice', async () => {
     const audio = fakeStream('audio');
     const manager = new MediaManager(() => {}, { getUserMedia: async () => audio.stream });
     manager.attach(fakeEndpoint().endpoint);
     manager.setContext({ ...context(), room: 'village', roomName: 'La aldea' });
     await manager.toggleMicrophone();
     expect(manager.view.micEnabled).toBe(true);
-    // Into a private call: an audience of one you picked, so capture stays on.
+    // Switching audiences always needs fresh microphone consent.
     manager.setContext({ ...context(), room: `pair:${'a'.repeat(64)}:${'b'.repeat(64)}`, roomName: 'Privado' });
-    expect(manager.view.micEnabled).toBe(true);
-    expect(audio.track.stopped).toBe(false);
+    expect(manager.view.micEnabled).toBe(false);
+    expect(audio.track.stopped).toBe(true);
     // Hanging up widens the audience again, so capture is revoked.
     manager.setContext({ ...context(), room: 'village', roomName: 'La aldea' });
     expect(manager.view.micEnabled).toBe(false);
@@ -126,4 +126,11 @@ describe('media lifecycle with explicitly FAKE devices and streams', () => {
     const screen = fakeStream('video'); const manager = new MediaManager(() => {}, { getUserMedia: async () => fakeStream('audio').stream, getDisplayMedia: async () => screen.stream }); manager.setContext(context());
     await manager.startScreen(); screen.track.ended(); expect(manager.view.screenPhase).toBe('SOURCE_ENDED'); expect(manager.view.localScreen).toBeNull(); expect(screen.track.stopped).toBe(true); manager.dispose();
   });
+});
+
+it('hides an unsupported screen capture API but keeps permission denial retryable',async()=>{
+ const unsupported=new MediaManager(()=>{},{getUserMedia:async()=>fakeStream('audio').stream,getDisplayMedia:async()=>{throw new DOMException('Unsupported','NotSupportedError');}});
+ unsupported.setContext(context());expect(unsupported.view.screenAvailable).toBe(true);await unsupported.startScreen();expect(unsupported.view.screenAvailable).toBe(false);expect(unsupported.view.screenPhase).toBe('NOT_SUPPORTED');unsupported.dispose();
+ const denied=new MediaManager(()=>{},{getUserMedia:async()=>fakeStream('audio').stream,getDisplayMedia:async()=>{throw new DOMException('Denied','NotAllowedError');}});
+ denied.setContext(context());await denied.startScreen();expect(denied.view.screenAvailable).toBe(true);expect(denied.view.screenPhase).toBe('DENIED');denied.dispose();
 });

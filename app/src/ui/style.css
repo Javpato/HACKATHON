@@ -824,8 +824,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* D-Pad Container */
 .sv-dpad {
   position: relative;
-  width: 132px;
-  height: 132px;
+  width: 156px;
+  height: 156px;
   pointer-events: auto;
   touch-action: none;
   user-select: none;
@@ -837,9 +837,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .sv-dpad-middle {
   position: absolute;
-  top: 44px;
+  top: 56px;
   left: 0;
-  width: 132px;
+  width: 156px;
   height: 44px;
   display: flex;
   pointer-events: none;
@@ -847,8 +847,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .sv-dpad-center {
   position: absolute;
-  top: 44px;
-  left: 44px;
+  top: 56px;
+  left: 56px;
   width: 44px;
   height: 44px;
   background: #23160c;
@@ -886,10 +886,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   cursor: pointer;
 }
 
-.sv-dpad-up { top: 0; left: 44px; }
-.sv-dpad-down { bottom: 0; left: 44px; }
-.sv-dpad-left { top: 44px; left: 0; }
-.sv-dpad-right { top: 44px; right: 0; }
+.sv-dpad-up { top: 0; left: 56px; }
+.sv-dpad-down { bottom: 0; left: 56px; }
+.sv-dpad-left { top: 0; left: 0; }  /* inside .sv-dpad-middle, already offset */
+.sv-dpad-right { top: 0; right: 0; }
 
 .sv-dpad-btn.is-pressed, .sv-dpad-btn:active {
   background: linear-gradient(180deg, #855c37 0, #5c3b1d 100%);
@@ -982,29 +982,29 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Mobile responsive adjustments */
 @media (max-width: 600px) {
   .sv-dpad {
-    width: 114px;
-    height: 114px;
+    width: 140px;
+    height: 140px;
   }
   .sv-dpad-middle {
-    top: 38px;
-    width: 114px;
-    height: 38px;
+    top: 50px;
+    width: 140px;
+    height: 40px;
   }
   .sv-dpad-center {
-    top: 38px;
-    left: 38px;
-    width: 38px;
-    height: 38px;
+    top: 50px;
+    left: 50px;
+    width: 40px;
+    height: 40px;
   }
   .sv-dpad-btn {
-    width: 38px;
-    height: 38px;
+    width: 40px;
+    height: 40px;
     font-size: 14px;
   }
-  .sv-dpad-up { top: 0; left: 38px; }
-  .sv-dpad-down { bottom: 0; left: 38px; }
-  .sv-dpad-left { top: 38px; left: 0; }
-  .sv-dpad-right { top: 38px; right: 0; }
+  .sv-dpad-up { top: 0; left: 50px; }
+  .sv-dpad-down { bottom: 0; left: 50px; }
+  .sv-dpad-left { top: 0; left: 0; }
+  .sv-dpad-right { top: 0; right: 0; }
   .sv-touch-action-btn {
     min-width: 84px;
     height: 48px;

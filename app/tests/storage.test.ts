@@ -9,6 +9,11 @@ describe('local storage boundary', () => {
     const data = newLocalData(); data.house = house;
     expect(parseLocalData(JSON.parse(serializeLocalData(data)))).toEqual(data);
   });
+  it('keeps private nicknames and session contacts without inventing a friend code',()=>{
+    const data=newLocalData();data.contacts=[{schemaVersion:1,identity:{fingerprint:'b'.repeat(64),publicKey:'A'.repeat(44),displayName:'Ana',color:'#336699'},nickname:'Study buddy'}];
+    expect(parseLocalData(JSON.parse(serializeLocalData(data))).contacts).toEqual(data.contacts);
+    expect(()=>serializeLocalData({...data,contacts:[{...data.contacts[0],nickname:'x'.repeat(49)}]})).toThrow();
+  });
   it('rejects unsupported versions, remote caches and plaintext private keys', () => {
     const data = newLocalData();
     expect(() => parseLocalData({ ...data, schemaVersion: 2 })).toThrow();

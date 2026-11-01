@@ -1,3 +1,5 @@
+import { INTERACTION_REACH } from './interactions';
+import { lampObstacles } from './lights';
 import { LIMITS, type AppView, type Position, type PublicHouse } from '../protocol/types';
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -13,7 +15,7 @@ export const PARCELS: readonly Parcel[] = [
   { slot: 5, x: 607, y: 293, w: 114, h: 83, doorX: 664, doorY: 293 },
 ];
 
-export const WORLD_SPAWN: Position = { x: 384, y: 215, direction: 'down', moving: false };
+export const WORLD_SPAWN: Position = { x: 240, y: 215, direction: 'down', moving: false };
 export const WORLD_TREES = [
   { x: 13, y: 157 }, { x: 183, y: 156 }, { x: 294, y: 157 },
   { x: 462, y: 155 }, { x: 574, y: 157 }, { x: 750, y: 158 },
@@ -26,6 +28,16 @@ export function occupiedParcels(view: AppView): OccupiedParcel[] {
   const byOwner = new Map(network.houses.map((house) => [house.ownerId, house]));
   byOwner.set(identity.fingerprint, ownHouse);
   const members = network.members.filter((member) => member.connected);
+  // On a server, plots belong to residents whether or not they are online; visitors have none.
+  if (network.residents) {
+    const used = new Set<number>();
+    return network.residents.flatMap(({ ownerId, slot, name }) => {
+      const parcel = PARCELS[slot]; const house = byOwner.get(ownerId);
+      if (!parcel || !house || used.has(slot)) return [];
+      used.add(slot);
+      return [{ parcel, house, name, ownerId, isOwn: ownerId === identity.fingerprint }];
+    });
+  }
   const slots = members.length
     ? members.map((member) => ({ ownerId: member.identity.fingerprint, slot: member.slot, name: member.identity.displayName }))
     : [{ ownerId: identity.fingerprint, slot: 0, name: identity.displayName }];
@@ -86,11 +98,12 @@ export function stepPosition(
     const nextY = y + vector.y / length * distance / steps;
     if (inside(x, nextY)) y = nextY;
   }
-  return { x, y, direction, moving: x !== from.x || y !== from.y };
+  return { ...from, x, y, direction, moving: x !== from.x || y !== from.y };
 }
 
 export function worldObstacles(occupied: readonly OccupiedParcel[]): Rect[] {
   return [
+    ...lampObstacles('residential'),
     ...occupied.map(({ parcel }) => ({ x: parcel.x - 2, y: parcel.y - 6, w: parcel.w + 4, h: parcel.h + 5 })),
     ...WORLD_TREES.map(({ x, y }) => ({ x: x - 11, y: y - 16, w: 22, h: 25 })),
   ];
@@ -201,12 +214,12 @@ export function findPath(
   return route;
 }
 
-export function closestDoor(position: Position, occupied: readonly OccupiedParcel[], maxDistance = 32): OccupiedParcel | null {
+export function closestDoor(position: Position, occupied: readonly OccupiedParcel[], maxDistance = INTERACTION_REACH): OccupiedParcel | null {
   let closest: OccupiedParcel | null = null;
   let distance = maxDistance;
   for (const item of occupied) {
     const next = Math.hypot(item.parcel.doorX - position.x, item.parcel.doorY - position.y);
-    if (next < distance) { closest = item; distance = next; }
+    if (next <= distance) { closest = item; distance = next; }
   }
   return closest;
 }

@@ -14,6 +14,7 @@ export const appearanceSchema = z.strictObject({
   eyewear:z.enum(['none','round','square','sunglasses']),
   outfit:z.enum(['casual','hoodie','suit','overalls','dress','sporty']),
   jacket:z.enum(['none','blazer','cardigan','coat']),
+  headphonesColor:color.default('#cf6f3c'),
   outfitColor:color.nullable(), pantsColor:color, headwearColor:color, jacketColor:color,
   useCustomSheet:z.boolean(),
 });
@@ -23,7 +24,7 @@ export type AvatarAccessory = AvatarAppearance['accessory'];
 export const DEFAULT_APPEARANCE: AvatarAppearance = {
   body:'masculine', hairStyle:'short', hairColor:'#3f3124', skinTone:'#f0c69a', accessory:'none',
   headwear:'none', eyewear:'none', outfit:'casual', jacket:'none',
-  outfitColor:null, pantsColor:'#2c4238', headwearColor:'#a77b50', jacketColor:'#765338', useCustomSheet:true,
+  headphonesColor:'#cf6f3c', outfitColor:null, pantsColor:'#2c4238', headwearColor:'#a77b50', jacketColor:'#765338', useCustomSheet:false,
 };
 /** Read old four-field packs without losing their glasses, hats or hair. */
 export function normalizeAppearance(raw: unknown): AvatarAppearance {
@@ -34,5 +35,6 @@ export function normalizeAppearance(raw: unknown): AvatarAppearance {
   }
   if(input.headwear===undefined)value.headwear=value.accessory==='hat'?'explorer':value.hairStyle==='beanie'?'beanie':'none';
   if(input.eyewear===undefined)value.eyewear=value.accessory==='glasses'?'square':'none';
+  value.useCustomSheet = false; // Legacy field is accepted, but custom PNG sheets no longer render.
   return appearanceSchema.parse(value);
 }

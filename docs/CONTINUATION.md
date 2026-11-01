@@ -339,3 +339,48 @@ Avatar femenino 0.2.3 (2026-11-01): campo `body` (masculine|feminine) en appeara
 pestaña «Cuerpo» en el armario y selector en ajustes. Cuerpo femenino con cintura,
 pestañas, rubor, labios, flequillo y pelo largo hasta los hombros; nuevos peinados
 Coleta y Moño. Looks antiguos se leen como masculino. Protocolo cambia: todos en 0.2.3.
+
+## Estudio ilustrado y Ollama personal (2026-11-01)
+
+Implementado en la versión web, sin reconstruir instaladores:
+
+- Menú → Estudio: portada a pantalla completa con tres tarjetas grandes y sprites
+  propios para Cuadernos, Flashcards y Quiz. Cuadernos muestra portadas existentes
+  y una portada discontinua con + para crear. Navegación y formularios adaptados a móvil.
+- Flashcards y quizzes tienen bibliotecas y editores independientes. Las antiguas
+  preguntas de concurso se copian una sola vez, sin borrar tarjetas ni progreso.
+  Los quizzes funcionan individualmente y en grupo; el anfitrión también responde.
+  Salir del concurso retira al participante para no bloquear preguntas sin tiempo.
+- Configurar Ollama sustituye el tutor de la biblioteca. Guía instalación, modelos,
+  conexión, permisos y pruebas individuales. Modelo común y excepciones por función;
+  IA personal para invitados, bots de Gartic solo en el anfitrión. Gemini retirado del
+  servidor Vite y de las rutas activas. No hay resultados prefabricados en el flujo de IA.
+- Pizarra fija sin desplazamiento de página, cámara infinita y opciones superpuestas.
+  Ajustes en cuatro secciones, tarjetas de ambiente y scrollbars de madera globales.
+- Errores seguros en español, validación junto a los campos, recuperación de borradores
+  y rechazo de guardados fallidos sin confirmaciones falsas.
+
+Verificación de esta entrega:
+- npm run check: typecheck, 121 tests de código/integración y build correctos.
+- Suite completa Playwright: 44 aprobadas; seis LIVE no ejecutadas por defecto.
+- Tras los últimos ajustes: ocho pruebas de estudio/Ollama/pizarra repetidas y aprobadas.
+- Ollama verificado con servicio simulado, incluyendo visión incompatible, generación
+  con revisión previa, restauración y bots de Gartic. No se afirma inferencia real.
+- Integración de concurso entre dos VillageClient autenticados: transporte simulado,
+  soluciones ocultas, respuestas de anfitrión/invitado, puntuación, salida y cancelación.
+- Se intentó la prueba LIVE de concurso con dos Chrome: falló antes de crear la invitación,
+  porque PeerJS no pudo abrir la señalización. Queda pendiente la validación por red real.
+- Revisadas capturas de escritorio, tableta y teléfono. No se afirma prueba de hardware
+  físico, ejecución Windows ni paquetes nativos nuevos. Guía actual: docs/STUDY.md.
+
+## 2026-11-01 — Interacción, inglés, pizarra editable y servidor propio
+
+Completado el bloque que quedó interrumpido. Detalle, evidencia y pendientes en [SERVER.md](SERVER.md);
+guía del dueño en [../server/README.md](../server/README.md).
+
+- Doble clic/toque abre al instante; clic simple sin efecto en ordenador; toque táctil acerca sin abrir.
+- Comunidad al norte, Biblioteca al sur; en modo servidor, los bordes izquierdo/derecho llevan a los barrios vecinos.
+- Retirada la hoja PNG del personaje.
+- Español/English en Ajustes, cambio en el sitio; 1725 mensajes traducidos con Claude CLI (0,61 USD), validados.
+- Pizarra: seleccionar (rectángulo/lazo), mover, escalar, ancho de texto, formato completo, portapapeles, transacciones.
+- Servidor Node 24 + WebSocket + SQLite con Docker y guía; cliente en Ajustes → Servidores.

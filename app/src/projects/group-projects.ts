@@ -118,7 +118,7 @@ export async function openExternal(url: string): Promise<void> {
 export class GroupProjectsBoard implements RoomEngine<ProjectsAction, ProjectsView> {
   projects: GroupProject[] = [];
 
-  constructor(private readonly persist = true) {
+  constructor(private readonly persist = true, private readonly scope = '') {
     if (persist) this.load();
   }
 
@@ -207,12 +207,12 @@ export class GroupProjectsBoard implements RoomEngine<ProjectsAction, ProjectsVi
 
   private save(): void {
     if (!this.persist) return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.projects)); } catch { /* Quota or private mode: the board still works in memory. */ }
+    try { localStorage.setItem(this.scope ? `${STORAGE_KEY}:${this.scope}` : STORAGE_KEY, JSON.stringify(this.projects)); } catch { /* Quota or private mode: the board still works in memory. */ }
   }
 
   private load(): void {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(this.scope ? `${STORAGE_KEY}:${this.scope}` : STORAGE_KEY);
       const list = raw ? JSON.parse(raw) as GroupProject[] : [];
       this.projects = Array.isArray(list) ? list.filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string').slice(0, MAX_PROJECTS)
         .map((p) => ({ ...p, working: {}, tasks: Array.isArray(p.tasks) ? p.tasks : [] })) : [];

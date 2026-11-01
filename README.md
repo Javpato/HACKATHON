@@ -1,8 +1,8 @@
 # StudyVillage
 
-Cambios recientes y trabajo pendiente de servidor permanente: [punto de continuación](docs/CONTINUATION.md).
+Cambios recientes: [punto de continuación](docs/CONTINUATION.md). Interacción, idioma, pizarra y **servidor propio**: [docs/SERVER.md](docs/SERVER.md) y la guía del dueño en [server/README.md](server/README.md).
 
-Un pequeño vecindario para estudiar juntos: casas propias, avatares, voz, pantalla y pizarra. Los proyectos permanecen en el equipo de su dueño. Interfaz en español, código TypeScript + Canvas, shell Tauri 2.
+Un pequeño vecindario para estudiar juntos: casas propias, avatares, voz, pantalla y pizarra. Los proyectos permanecen en el equipo de su dueño. Interfaz en español e inglés (Ajustes → Perfil → Idioma), código TypeScript + Canvas, shell Tauri 2. Opcionalmente, un servidor propio (Node 24 + SQLite) mantiene el mundo con hasta 24 personas.
 
 **Estado: implementación en integración; P0 no certificado.** El empaquetado nativo ya pasa en CI y el `.AppImage` arranca en Linux. Siguen sin evidencia la prueba entre dos equipos, la captura real de micrófono/pantalla y la ejecución en Windows. Consulta [STATUS](docs/STATUS.md) y [TEST_RESULTS](TEST_RESULTS.md). No se ha publicado el proyecto ni decidido una licencia final.
 
@@ -24,14 +24,20 @@ Para el primer gate de medios, abre `http://127.0.0.1:3000/?diagnostic=1`. Permi
 ## Uso
 
 1. Elige nombre y color. Tu identidad criptográfica es independiente del nombre.
-2. Todo se abre desde el botón **Menú** (tecla M): tu casa, la aldea, voz, proyectos, apuntes, tarjetas, decorar, contactos y ajustes. Exporta/importa contactos para reconocer huellas; el código amigo no es un servicio de presencia.
+2. Todo se abre desde el botón **Menú** (tecla M): tu casa, la aldea, voz, proyectos, estudio, decorar, contactos y ajustes. Exporta/importa contactos para reconocer huellas; el código amigo no es un servicio de presencia.
 3. «Abrir vecindario» conecta con la señalización gratuita. Copia la invitación y compártela fuera de la app. La persona invitada solicita acceso; el coordinador acepta o rechaza.
-4. Hay seis parcelas fijas: coordinador en 0 y siguientes en el primer hueco libre. Cada persona conserva su propia casa. Camina con WASD o haz clic en una puerta, portal, estación o mueble: el personaje va andando (rodeando obstáculos) y lo usa al llegar. E sigue funcionando de cerca.
+4. Hay seis parcelas fijas: coordinador en 0 y siguientes en el primer hueco libre. Cada persona conserva su propia casa. La Comunidad está al norte y la Biblioteca al sur. Camina con WASD o flechas; **doble clic o doble toque** abre al instante casas, muebles, estaciones y portales, también desde lejos. Un clic simple no hace nada en ordenador; con los controles táctiles activados, un toque te acerca andando sin abrir nada. E sigue funcionando de cerca.
 5. Dentro de una casa, activa micrófono o comparte pantalla con un gesto explícito. Comprueba el indicador de quién te escucha. Detén la captura antes de mostrar contenido privado.
 6. Pizarra por autor, ocultación local de capas, deshacer lo propio y exportar PNG. En la plaza: Hombres Lobo y Gartic Phone, que el anfitrión arbitra para toda la aldea (Hombres Lobo permite bots; Gartic solo con un Ollama local verificado). El código se escribe en VS Code: «Proyectos» guarda el repositorio, la sesión Live Share activa, quién trabaja y las tareas del grupo.
 7. «Salir» siempre permite abandonar. Una caída inesperada del coordinador ofrece 60 segundos desde su detección; después se cierra la sesión, sin migración de host.
 
 La identidad es temporal en RAM por defecto. Para reconocer el mismo contacto tras reiniciar, guárdala **cifrada con una contraseña** y desbloquéala en la siguiente apertura. No hay recuperación de contraseña ni integración de keyring del SO en esta entrega. La casa y los apuntes pueden persistir aunque uses una identidad temporal.
+
+## Estudio actualizado en la versión web
+
+**Menú → Estudio** reúne Cuadernos, Flashcards y Quiz en una portada ilustrada. Los quizzes tienen biblioteca propia y permiten práctica individual o concurso en la aldea. El mueble **Configurar Ollama** guía la conexión personal y activa cada función verificada. Las funciones de IA permanecen ocultas sin esa configuración. [Guía de uso y migración](docs/STUDY.md).
+
+La pizarra queda fija en pantalla y Ajustes se organiza por secciones. Estos cambios corresponden al código web; no se han reconstruido los instaladores anteriores.
 
 ## Novedades de 0.2.1
 

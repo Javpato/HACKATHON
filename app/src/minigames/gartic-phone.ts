@@ -23,7 +23,7 @@ export const CANVAS_W = 640;
 export const CANVAS_H = 400;
 export const MAX_DRAWING_POINTS = 4_000;
 export const MAX_DRAWING_CHARS = 40_000;
-export const MIN_PLAYERS = 3;
+export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 export const DURATIONS = { write: 45_000, draw: 100_000, guess: 45_000 } as const;
 /** Late drawings keep arriving for a moment after the clock hits zero. */
@@ -148,7 +148,7 @@ export class GarticGame implements RoomEngine<GarticAction, GarticView> {
       case 'start': {
         this.requireLeader(actorId);
         if (this.phase !== 'lobby') return;
-        if (this.players.length < MIN_PLAYERS) throw new Error(`Hacen falta al menos ${MIN_PLAYERS} jugadores.`);
+        if (this.players.length < MIN_PLAYERS) throw new Error('Hacen falta al menos 2 jugadores.');
         if (this.players.some(p => p.bot) && !this.aiBotsEnabled) throw new Error('Los bots necesitan Ollama compatible.');
         this.seats = shuffle(this.players, this.random);
         const n = this.seats.length;

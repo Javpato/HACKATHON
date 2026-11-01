@@ -92,7 +92,8 @@ export interface WerewolfPlayer {
   alive: boolean; role: WerewolfRole | null; ready: boolean;
 }
 
-export interface LogEntry { icon: 'moon' | 'sun' | 'skull' | 'vote' | 'trophy' | 'info'; text: string }
+/** `text` is a message template; `params` fill its {placeholders}. Names stay as typed; the UI translates the rest. */
+export interface LogEntry { icon: 'moon' | 'sun' | 'skull' | 'vote' | 'trophy' | 'info'; text: string; params?: Record<string, string | number> }
 
 export type WerewolvesAction =
   | { kind: 'join'; name: string; color: string }
@@ -222,7 +223,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
           this.players = this.players.filter((p) => p.id !== actorId);
         } else if (actor.alive) {
           actor.alive = false;
-          this.say('info', `${actor.name} abandona la partida.`);
+          this.say('info', '{name} abandona la partida.', { name: actor.name });
           if (this.phase !== 'hunter') {
             this.interrupted = { phase: this.phase, step: this.step, remaining: Math.max(0, this.deadline - now) };
             this.finishDeaths(now, 'interrupted');
@@ -275,7 +276,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
         if (this.phase !== 'hunter' || this.hunters[0] !== actorId) throw new Error('No es tu último disparo.');
         if (action.target !== null) this.requireTarget(action.target, p => p.id !== actorId);
         this.hunters.shift();
-        if (action.target) { this.players.find(p => p.id === action.target)!.alive = false; this.say('skull', `${actor!.name} dispara a ${this.players.find(p => p.id === action.target)!.name}.`); }
+        if (action.target) { this.players.find(p => p.id === action.target)!.alive = false; this.say('skull', '{name} dispara a {target}.', { name: actor!.name, target: this.players.find(p => p.id === action.target)!.name }); }
         this.finishDeaths(now, this.resumeAfterDeath); return;
       }
       case 'cupid':
@@ -294,7 +295,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
         this.seerSeen.clear();
         this.winner = null;
         this.verdict = null;
-        this.log = [{ icon: 'info', text: `Se reparten ${this.players.length} cartas. Mira la tuya sin que nadie te vea.` }];
+        this.log = [{ icon: 'info', text: 'Se reparten {count} cartas. Mira la tuya sin que nadie te vea.', params: { count: this.players.length } }];
         this.enter('reveal', now);
         return;
       }
@@ -473,7 +474,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     this.verdict = null;
     this.phase = 'night';
     this.step = null;
-    this.say('moon', `Noche ${this.round}. La aldea cierra los ojos.`);
+    this.say('moon', 'Noche {round}. La aldea cierra los ojos.', { round: this.round });
     this.nextStep(now);
   }
 
@@ -517,7 +518,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     if (!this.nightDeaths.length) this.say('sun', 'Amanece y nadie ha muerto esta noche.');
     for (const id of this.nightDeaths) {
       const p = this.players.find((x) => x.id === id)!;
-      this.say('skull', `${p.name} aparece sin vida. Su carta: ${ROLE_INFO[p.role!].name}.`);
+      this.say('skull', '{name} aparece sin vida. Su carta: {role}.', { name: p.name, role: ROLE_INFO[p.role!].name });
     }
     this.finishDeaths(now, 'dawn');
   }
@@ -532,7 +533,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     if (chosen) {
       const p = this.players.find((x) => x.id === chosen)!;
       p.alive = false;
-      this.say('vote', `La aldea elimina a ${p.name} con ${best} voto${best === 1 ? '' : 's'}. Su carta: ${ROLE_INFO[p.role!].name}.`);
+      this.say('vote', best === 1 ? 'La aldea elimina a {name} con 1 voto. Su carta: {role}.' : 'La aldea elimina a {name} con {votes} votos. Su carta: {role}.', { name: p.name, votes: best, role: ROLE_INFO[p.role!].name });
     } else {
       this.say('vote', top.length > 1 ? 'Empate en la votación: nadie es eliminado hoy.' : 'La aldea decide no eliminar a nadie hoy.');
     }
@@ -555,7 +556,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     this.resumeAfterDeath = resume;
     if (this.lovers) {
       const pair = this.lovers.map(id => this.players.find(p => p.id === id)!);
-      if (pair.some(p => !p.alive)) for (const p of pair) if (p.alive) { p.alive = false; this.nightDeaths.push(p.id); this.say('skull', `${p.name} muere por su vínculo.`); }
+      if (pair.some(p => !p.alive)) for (const p of pair) if (p.alive) { p.alive = false; this.nightDeaths.push(p.id); this.say('skull', '{name} muere por su vínculo.', { name: p.name }); }
     }
     for (const p of this.players) if (!p.alive && p.role === 'hunter' && !this.spentHunters.has(p.id)) { this.spentHunters.add(p.id); this.hunters.push(p.id); }
     if (this.hunters.length) { this.phase = 'hunter'; this.step = null; this.deadline = now + DURATIONS.hunter; this.botAt = now + 1800; return; }
@@ -588,7 +589,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
     if (phase === 'day') {
       this.votes.clear();
       this.botAt = now + 4_000 + this.random(6_000);
-      this.say('sun', `Día ${this.round}. Debatid y votad a quién eliminar.`);
+      this.say('sun', 'Día {round}. Debatid y votad a quién eliminar.', { round: this.round });
     }
   }
 
@@ -635,7 +636,7 @@ export class WerewolvesGame implements RoomEngine<WerewolvesAction, WerewolvesVi
 
   private botDelay(): number { return BOT_DELAY[0] + this.random(BOT_DELAY[1] - BOT_DELAY[0]); }
   private alive(): WerewolfPlayer[] { return this.players.filter((p) => p.alive); }
-  private say(icon: LogEntry['icon'], text: string): void { this.log.push({ icon, text }); if (this.log.length > 60) this.log.shift(); }
+  private say(icon: LogEntry['icon'], text: string, params?: LogEntry['params']): void { this.log.push(params ? { icon, text, params } : { icon, text }); if (this.log.length > 60) this.log.shift(); }
 
   private reset(): void {
     this.players = [];

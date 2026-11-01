@@ -1,3 +1,4 @@
+import { msg, t, defaultText, setDisplayText, setDisplayAttribute, getLocale, formatDate, type DisplayText } from '../i18n';
 import type { AppView } from '../protocol/types';
 
 interface Tile { root: HTMLElement; video: HTMLVideoElement; name: HTMLElement; quality: HTMLElement; stream: MediaStream }
@@ -10,7 +11,7 @@ export class GameCameraDock {
   private tiles = new Map<string, Tile>();
   private container: HTMLElement | null = null;
   constructor(private readonly toggle: () => Promise<void>) {
-    this.root.className = 'sv-game-camera'; this.root.setAttribute('aria-label', 'Cámaras del juego');
+    this.root.className = 'sv-game-camera'; setDisplayAttribute(this.root, 'aria-label', msg('Cámaras del juego'));
     const controls = document.createElement('div'); controls.className = 'sv-game-camera-controls';
     this.button.type = 'button'; this.button.className = 'sv-game-camera-toggle';
     // Camera glyph follows the existing 12 px icon grid; the card itself has a quiet rounded frame.
@@ -24,26 +25,26 @@ export class GameCameraDock {
   update(view: AppView): void {
     const camera=view.network.gameCamera;
     const on=!!camera.local;
-    this.label.textContent=camera.pending?'Abriendo…':on?'Apagar':'Cámara';
-    this.button.setAttribute('aria-label',camera.pending?'Cancelar activación de cámara':on?'Apagar cámara':'Activar cámara');
+    setDisplayText(this.label, camera.pending ? msg('Abriendo…') : on ? msg('Apagar') : msg('Cámara'));
+    setDisplayAttribute(this.button, 'aria-label', camera.pending ? msg('Cancelar activación de cámara') : on ? msg('Apagar cámara') : msg('Activar cámara'));
     this.button.setAttribute('aria-pressed',String(on||camera.pending));this.button.classList.toggle('is-on',on);
-    this.error.textContent=camera.error;this.error.hidden=!camera.error;
+    this.error.textContent=camera.error?t(camera.error):'';this.error.hidden=!camera.error;
     const streams=new Map<string,{stream:MediaStream;name:string;self:boolean}>();
-    if(camera.local)streams.set(view.identity.fingerprint,{stream:camera.local,name:'Tú',self:true});
-    for(const remote of camera.remote){const member=view.network.members.find(m=>m.identity.fingerprint===remote.identityId);streams.set(remote.identityId,{stream:remote.stream,name:member?.identity.displayName||'Vecino',self:false});}
+    if(camera.local)streams.set(view.identity.fingerprint,{stream:camera.local,name:t('Tú'),self:true});
+    for(const remote of camera.remote){const member=view.network.members.find(m=>m.identity.fingerprint===remote.identityId);streams.set(remote.identityId,{stream:remote.stream,name:member?.identity.displayName?defaultText(member.identity.displayName):t('Vecino'),self:false});}
     for(const [id,tile] of this.tiles)if(!streams.has(id)){tile.video.srcObject=null;tile.root.remove();this.tiles.delete(id);}
     for(const [id,item] of streams){
       let tile=this.tiles.get(id);
       if(tile&&tile.stream!==item.stream){tile.video.srcObject=null;tile.root.remove();this.tiles.delete(id);tile=undefined;}
       if(!tile){
         const card=document.createElement('div');card.className='sv-game-camera-tile';card.dataset.cameraPeer=id;
-        const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=true;video.className=item.self?'is-self':'';video.srcObject=item.stream;video.setAttribute('aria-label',item.self?'Tu cámara':`Cámara de ${item.name}`);
+        const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=true;video.className=item.self?'is-self':'';video.srcObject=item.stream;setDisplayAttribute(video, 'aria-label', item.self ? msg('Tu cámara') : msg("Cámara de {p0}", { p0: item.name }));
         const caption=document.createElement('div');caption.className='sv-game-camera-caption';
         const dot=document.createElement('span');dot.className='sv-game-camera-live';dot.setAttribute('aria-hidden','true');
         const name=document.createElement('span');const quality=document.createElement('span');quality.className='sv-game-camera-quality';
         caption.append(dot,name,quality);card.append(video,caption);this.gallery.append(card);
         const current:Tile={root:card,video,name,quality,stream:item.stream};this.tiles.set(id,current);tile=current;
-        const updateQuality=()=>{quality.textContent=video.videoWidth>=1920&&video.videoHeight>=1080?'Full HD':Math.min(video.videoWidth,video.videoHeight)>=720?'HD':'';};
+        const updateQuality=()=>{setDisplayText(quality, video.videoWidth>=1920&&video.videoHeight>=1080 ? msg('Full HD') : Math.min(video.videoWidth,video.videoHeight)>=720 ? msg('HD') : '');};
         video.onloadedmetadata=updateQuality;video.addEventListener('resize',updateQuality);
         void video.play().catch(()=>{/* Muted inline video can resume after a browser gesture. */});
       }

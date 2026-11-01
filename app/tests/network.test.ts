@@ -1,3 +1,6 @@
+import { makeStroke } from '../src/whiteboard/model';
+import { SharedRoom } from '../src/minigames/room';
+import { StudyQuiz, type QuizAction, type QuizView } from '../src/minigames/study-quiz';
 import { normalizeAppearance } from '../src/assets/appearance';
 import { areaOf, isInScene } from '../src/world/location';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -335,6 +338,35 @@ describe('session integration using a FAKE in-memory transport, real WebCrypto (
     const c = await client(network, clock, 'C'); await admit(a.instance, c.instance); c.instance.visitHouse(a.identity.public.fingerprint);
     await until(() => c.instance.view.strokes[0]?.deleted === true, 'late join board tombstone sync');
   });
+  it('lets the house owner edit and delete anyone\'s layer on their own boards, and nobody else\'s', async () => {
+    const network = new FakeNetwork(), clock = new ManualClock(); const a = await client(network, clock, 'A'), b = await client(network, clock, 'B');
+    await a.instance.openVillage(); await admit(a.instance, b.instance);
+    const owner = a.identity.public.fingerprint, guest = b.identity.public.fingerprint, ref = `house:${owner}:board`;
+    a.instance.publishHouse({ ...a.house, revision: 2, furniture: [{ id: 'board', kind: 'board', x: 340, y: 95, publicAlias: '' }] });
+    await until(() => !!b.instance.view.houses.find(h => h.ownerId === owner)?.furniture.length, 'guest sees the whiteboard');
+    a.instance.visitHouse(owner); b.instance.visitHouse(owner);
+    await until(() => b.instance.view.members.every(member => member.houseId === owner));
+    a.instance.selectBoard(ref); b.instance.selectBoard(ref);
+    const mine = { id: 'by-guest', boardId: ref, author: guest, seq: 1, color: '#112233', width: 3, tool: 'pen' as const, points: [{ x: 1, y: 1 }, { x: 9, y: 9 }], deleted: false };
+    await b.instance.commitBoard(ref, [mine]);
+    await until(() => a.instance.view.strokes.some(s => s.id === 'by-guest'));
+    // The owner moves the guest's stroke: it stays the guest's layer, signed by the owner.
+    await a.instance.commitBoard(ref, [{ ...mine, seq: 2, points: [{ x: 50, y: 50 }, { x: 60, y: 60 }] }]);
+    await until(() => b.instance.view.strokes.find(s => s.id === 'by-guest')?.points[0].x === 50, 'guest sees the owner edit');
+    expect(b.instance.view.strokes.find(s => s.id === 'by-guest')!.author).toBe(guest);
+    // A guest cannot do the same to the owner's work.
+    const ownerStroke = { ...mine, id: 'by-owner', author: owner };
+    await a.instance.commitBoard(ref, [ownerStroke]);
+    await until(() => b.instance.view.strokes.some(s => s.id === 'by-owner'));
+    await expect(b.instance.commitBoard(ref, [{ ...ownerStroke, seq: 5, deleted: true }])).rejects.toThrow();
+    // The owner deletes the guest's layer; someone arriving later receives it through sync.
+    await a.instance.commitBoard(ref, [{ ...mine, seq: 3, deleted: true }]);
+    await until(() => b.instance.view.strokes.find(s => s.id === 'by-guest')?.deleted === true, 'guest sees the deletion');
+    const c = await client(network, clock, 'C'); await admit(a.instance, c.instance); c.instance.visitHouse(owner);
+    await until(() => c.instance.view.members.find(m => m.identity.fingerprint === c.identity.public.fingerprint)?.houseId === owner);
+    c.instance.selectBoard(ref);
+    await until(() => c.instance.view.strokes.find(s => s.id === 'by-guest')?.deleted === true, 'late joiner accepts the owner-signed edit');
+  });
   it('re-signs offline own drafts for a fresh session before synchronization', async () => {
     const network = new FakeNetwork(), clock = new ManualClock(); const a = await client(network, clock, 'A'), b = await client(network, clock, 'B');
     a.instance.sendStroke({ id: 'offline', boardId: a.identity.public.fingerprint, author: a.identity.public.fingerprint, seq: 1, color: '#112233', width: 3, tool: 'pen', points: [{ x: 4, y: 5 }], deleted: false });
@@ -381,4 +413,97 @@ describe('bounded protocol and board unit tests', () => {
     expect(board.apply({ stroke: { ...stroke, seq: 2001 }, signature: '' })).toBe('full');
     expect(board.documents(stroke.boardId)).toHaveLength(1);
   });
+});
+
+
+describe('shared quiz with authenticated clients and simulated transport', () => {
+  it('routes host and guest answers, hides solutions, handles leaving and ends for both clients', async () => {
+    const network = new FakeNetwork(), clock = new ManualClock();
+    const host = await client(network, clock, 'QuizHost'), guest = await client(network, clock, 'QuizGuest');
+    await host.instance.openVillage(); await admit(host.instance, guest.instance);
+    const hostId = host.identity.public.fingerprint, guestId = guest.identity.public.fingerprint;
+    const room = (entry: typeof host) => new SharedRoom<QuizAction, QuizView, StudyQuiz>('study', {
+      sendApp: (channel, to, data) => entry.instance.sendApp(channel, to, data), onApp: listener => entry.instance.onApp(listener),
+    }, () => ({ selfId: entry.identity.public.fingerprint, hostId }), () => new StudyQuiz(hostId));
+    const a = room(host), b = room(guest);
+    try {
+      a.sync(); b.sync();
+      a.mutate(engine => { engine.setQuiz({ id:'quiz', title:'Concurso', updatedAt:0, questions:[{ id:'q',text:'Capital de Francia',choices:['París','Lyon'],correctChoice:0,explanation:'París es la capital.' }] }); return true; });
+      a.act({kind:'join',name:'QuizHost'}); b.act({kind:'join',name:'QuizGuest'});
+      await until(() => a.current()?.players.length === 2);
+      a.act({kind:'start',seconds:0}); await until(() => b.current()?.phase === 'question');
+      expect(b.current()?.solution).toBeNull(); expect(b.current()?.explanation).toBeNull();
+      expect(JSON.stringify(b.current())).not.toContain('correctChoice');
+      b.act({kind:'answer',questionId:b.current()!.question!.id,choice:0});
+      await until(() => a.current()?.players.find(p=>p.id===guestId)?.answered === true);
+      expect(b.current()?.solution).toBeNull();
+      a.act({kind:'answer',questionId:a.current()!.question!.id,choice:1});
+      await until(() => b.current()?.phase === 'results');
+      expect(b.current()?.solution).toBe(0); expect(b.current()?.players.find(p=>p.id===guestId)?.score).toBe(1000);
+      a.stop(); await until(() => b.current()?.stopped === true);
+      a.act({kind:'start',seconds:0}); await until(() => b.current()?.phase === 'question');
+      a.act({kind:'answer',questionId:a.current()!.question!.id,choice:0}); b.act({kind:'leave'});
+      await until(() => a.current()?.phase === 'results');
+      expect(a.current()?.players).toHaveLength(1);
+    } finally { a.dispose(); b.dispose(); }
+  });
+});
+
+it('keeps an invited party isolated when peers move between outdoor areas and houses', async () => {
+  const network = new FakeNetwork(), clock = new ManualClock();
+  const host = await client(network, clock, 'Host'), a = await client(network, clock, 'A'), b = await client(network, clock, 'B');
+  await host.instance.openVillage(); await admit(host.instance, a.instance); await admit(host.instance, b.instance);
+  a.instance.voiceCommand({ action: 'create', name: 'Friends' });
+  await until(() => a.instance.view.voice?.selected?.kind === 'party');
+  a.instance.voiceCommand({ action: 'invite', target: b.identity.public.fingerprint });
+  await until(() => !!b.instance.view.voice?.invitations.length);
+  expect(b.instance.view.voice?.selected).toBeNull();
+  b.instance.voiceCommand({ action: 'respond', invitation: b.instance.view.voice!.invitations[0].id, accept: true });
+  await until(() => b.instance.view.media.audience.startsWith('Friends · 1') && a.instance.view.media.audience.startsWith('Friends · 1'));
+  const id = a.instance.view.voice!.selected!.id;
+  a.instance.move({ areaId: 'study', x: 384, y: 200, direction: 'up', moving: false });
+  b.instance.visitHouse(b.identity.public.fingerprint);
+  await until(() => b.instance.view.members.find(m => m.identity.fingerprint === b.identity.public.fingerprint)?.houseId === b.identity.public.fingerprint);
+  expect(a.instance.view.voice!.selected!.id).toBe(id); expect(b.instance.view.voice!.selected!.id).toBe(id);
+  expect(host.instance.view.media.audience).toMatch(/^La aldea · 0/);
+  a.instance.voiceCommand({ action: 'remove', target: b.identity.public.fingerprint });
+  await until(() => b.instance.view.voice!.selected === null);
+});
+
+it('routes private room permissions and keeps room boards inaccessible from the lobby',async()=>{
+ const network=new FakeNetwork(),clock=new ManualClock(),host=await client(network,clock,'Host'),guest=await client(network,clock,'Guest');
+ await host.instance.openVillage();await admit(host.instance,guest.instance);
+ host.instance.publishHouse({...host.house,revision:host.house.revision+1,access:'open',floors:[{id:'ground',name:'Ground',rooms:[{id:'math',name:'Math'}]}]});
+ await until(()=>guest.instance.view.houses.some(h=>h.ownerId===host.identity.public.fingerprint&&h.floors?.[0].rooms.length===1));
+ host.instance.visitHouse(host.identity.public.fingerprint);guest.instance.visitHouse(host.identity.public.fingerprint);
+ await until(()=>guest.instance.view.members.find(m=>m.identity.fingerprint===guest.identity.public.fingerprint)?.houseId===host.identity.public.fingerprint);
+ const corridor={floorId:'ground',roomId:null},room={floorId:'ground',roomId:'math'},enter=(space:typeof corridor|typeof room|null)=>guest.instance.workspaceCommand({action:'enter',owner:host.identity.public.fingerprint,space});
+ enter(corridor);await until(()=>!!host.instance.view.workspace?.requests.length);
+ host.instance.workspaceCommand({action:'decide',request:host.instance.view.workspace!.requests[0].id,accept:true});await until(()=>guest.instance.view.workspace?.space?.floorId==='ground');
+ enter(room);await until(()=>!!host.instance.view.workspace?.requests.length);host.instance.workspaceCommand({action:'decide',request:host.instance.view.workspace!.requests[0].id,accept:true});await until(()=>guest.instance.view.workspace?.space?.roomId==='math');
+ host.instance.workspaceCommand({action:'enter',owner:host.identity.public.fingerprint,space:room});
+ const ref=`house:${host.identity.public.fingerprint}:space:ground:math:board`;
+ expect(await guest.instance.commitBoard(ref,[makeStroke(ref,guest.identity.public.fingerprint,1,'pen','#123456',2,[{x:10,y:10}], 'room-stroke')])).toBe(true);
+ enter(corridor);await until(()=>guest.instance.view.workspace?.space?.roomId===null);
+ await expect(guest.instance.commitBoard(ref,[makeStroke(ref,guest.identity.public.fingerprint,2,'pen','#123456',2,[{x:20,y:20}],'blocked')])).rejects.toThrow();
+});
+
+it('honors house and room allowlists in peer sessions and revokes private room access',async()=>{
+ const network=new FakeNetwork(),clock=new ManualClock();
+ const host=await client(network,clock,'Host'),guest=await client(network,clock,'Friend');
+ await host.instance.openVillage();await admit(host.instance,guest.instance);
+ const room={floorId:'ground',roomId:'math'};
+ const layout:PublicHouse={...host.house,revision:2,access:'locked',floors:[{id:'ground',name:'Ground',rooms:[{id:'math',name:'Math',allowlist:[guest.identity.public.fingerprint]}]}]};
+ host.instance.publishHouse(layout);
+ await until(()=>guest.instance.view.houses.some(h=>h.ownerId===host.identity.public.fingerprint&&h.revision===2));
+ guest.instance.visitHouse(host.identity.public.fingerprint);
+ await until(()=>guest.instance.view.members.find(m=>m.identity.fingerprint===guest.identity.public.fingerprint)?.houseId===host.identity.public.fingerprint);
+ guest.instance.workspaceCommand({action:'enter',owner:host.identity.public.fingerprint,space:room});
+ await until(()=>guest.instance.view.workspace?.space?.roomId==='math');expect(host.instance.view.workspace?.requests).toEqual([]);
+ expect(guest.instance.view.workspace?.document).not.toBeNull();
+ host.instance.publishHouse({...layout,revision:3,allowlist:[guest.identity.public.fingerprint],floors:[{...layout.floors![0],rooms:[{id:'math',name:'Math',allowlist:[]}]}]});
+ await until(()=>guest.instance.view.workspace?.space===null);expect(guest.instance.view.workspace?.document).toBeNull();
+ expect(guest.instance.view.members.find(m=>m.identity.fingerprint===guest.identity.public.fingerprint)?.houseId).toBe(host.identity.public.fingerprint);
+ host.instance.publishHouse({...layout,revision:4,floors:[{...layout.floors![0],rooms:[{id:'math',name:'Math'}]}]});
+ await until(()=>guest.instance.view.members.find(m=>m.identity.fingerprint===guest.identity.public.fingerprint)?.houseId===null);
 });

@@ -1,10 +1,11 @@
+import { quizDefinitionSchema, type QuizDefinition } from '../study/library';
 import { flashcardDeckSchema, type FlashcardDeck } from '../ai/ollama-gateway';
 import type { RoomEngine } from './room';
-export type QuizAction = { kind: 'join'; name: string } | { kind: 'start'; seconds: number } | { kind: 'answer'; questionId: string; choice: number } | { kind: 'next' };
+export type QuizAction = { kind: 'leave' } | { kind: 'join'; name: string } | { kind: 'start'; seconds: number } | { kind: 'answer'; questionId: string; choice: number } | { kind: 'next' };
 export interface QuizView {
   phase: 'lobby' | 'question' | 'results' | 'end'; title: string; count: number; index: number;
   question: { id: string; text: string; choices: string[] } | null; remainingMs: number; timed: boolean;
-  solution: number | null; players: { id: string; name: string; score: number; answered: boolean }[];
+  explanation: string | null; solution: number | null; players: { id: string; name: string; score: number; answered: boolean }[];
   meAnswered: boolean; stopped: boolean;
 }
 export class StudyQuiz implements RoomEngine<QuizAction, QuizView> {
@@ -13,8 +14,14 @@ export class StudyQuiz implements RoomEngine<QuizAction, QuizView> {
   private players = new Map<string, { id: string; name: string; score: number; answered: boolean }>();
   private phase: QuizView['phase'] = 'lobby';
   private index = 0; private started = 0; private seconds = 20; private game = ''; private stopped = false;
-  constructor(private readonly hostId: string) {}
+  /** The host may be fixed (peer host, solo play) or the current organiser (server mode). */
+  constructor(private readonly host: string | (() => string)) {}
+  private get hostId(): string { return typeof this.host === 'function' ? this.host() : this.host; }
   audience(): string[] { return [...this.players.keys()]; }
+  setQuiz(raw: QuizDefinition): void {
+    const quiz = quizDefinitionSchema.parse(raw);
+    this.setDeck({ id: quiz.id, title: quiz.title, topic: 'Estudio', sourceType: 'manual', ownerId: this.hostId, createdAt: quiz.updatedAt, updatedAt: quiz.updatedAt, provider: 'manual', cards: quiz.questions.map(q => ({ id: q.id, question: q.text, answer: q.choices[q.correctChoice], choices: q.choices, correctChoice: q.correctChoice, explanation: q.explanation, topic: 'Estudio', difficulty: 'medium', tags: [] })) });
+  }
   setDeck(raw: FlashcardDeck): void {
     if (this.phase === 'question') throw new Error('Termina primero la partida.');
     this.deck = flashcardDeckSchema.parse(raw);
@@ -29,14 +36,14 @@ export class StudyQuiz implements RoomEngine<QuizAction, QuizView> {
   }
   cancel(): void { this.phase = 'lobby'; this.index = 0; this.game = crypto.randomUUID(); this.stopped = true; for (const p of this.players.values()) { p.score = 0; p.answered = false; } }
   apply(actor: string, action: QuizAction, now: number): void {
+    if (action.kind === 'leave') { this.players.delete(actor); if (this.phase === 'question' && [...this.players.values()].every(p => p.answered)) this.phase = 'results'; return; }
     if (action.kind === 'join') {
-      if (actor === this.hostId) return;
       if (!this.players.has(actor)) this.players.set(actor, { id: actor, name: String(action.name).trim().slice(0, 32) || 'Vecino', score: 0, answered: this.phase === 'question' });
       return;
     }
     if (action.kind === 'start') {
       if (actor !== this.hostId || this.phase === 'question') throw new Error('Solo el anfitrión puede comenzar.');
-      if (!this.cards.length) throw new Error('Añade opciones de concurso a las tarjetas de este mazo.');
+      if (!this.cards.length) throw new Error('Añade al menos una pregunta al quiz antes de jugar.');
       if (!this.players.size) throw new Error('Espera a que entre al menos un participante.');
       if (![0, 20, 30, 60].includes(action.seconds)) throw new Error('Tiempo inválido.');
       this.seconds = action.seconds; this.index = 0; this.game = crypto.randomUUID(); this.stopped = false;
@@ -65,6 +72,7 @@ export class StudyQuiz implements RoomEngine<QuizAction, QuizView> {
     const card = this.cards[this.index]; const visible = !!card && (this.phase === 'question' || this.phase === 'results');
     return { phase: this.phase, title: this.deck?.title ?? '', count: this.cards.length, index: this.index,
       question: visible ? { id: this.questionId(), text: card.question, choices: [...card.choices!] } : null,
+      explanation: this.phase === 'results' ? card.explanation || null : null,
       solution: this.phase === 'results' ? card.correctChoice! : null,
       remainingMs: this.phase === 'question' && this.seconds ? Math.max(0, this.started + this.seconds * 1000 - now) : 0,
       timed: this.seconds > 0, meAnswered: this.players.get(actor)?.answered ?? false, stopped: this.stopped,

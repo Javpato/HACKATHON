@@ -2,7 +2,7 @@ import { LIMITS, type BoardPoint, type BoardStroke } from '../protocol/types';
 
 export type BoardTool = BoardStroke['tool'];
 /** Tools that exist only in the UI and never become strokes. */
-export type BoardUiTool = BoardTool | 'eraser' | 'hand';
+export type BoardUiTool = BoardTool | 'eraser' | 'hand' | 'select';
 export const BOARD_COLORS = ['#315f51', '#df7e6c', '#3d78a2', '#c48b39', '#322f45'] as const;
 
 const EXTENT = LIMITS.boardExtent;

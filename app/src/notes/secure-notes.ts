@@ -1,3 +1,4 @@
+import { AppError } from '../errors/messages';
 import { z } from 'zod';
 import { toTex } from '../whiteboard/math';
 
@@ -218,16 +219,18 @@ export function renderSafeMarkdownWithLatex(markdown: string): string {
 const STORAGE_KEY = 'studyvillage-secure-notes-v1';
 
 export class SecureNotesStore {
+  private committed: {notebooks: SecureNotebook[]; notes: SecureNote[]} | null = null;
   private notebooks = new Map<string, SecureNotebook>();
   private notes = new Map<string, SecureNote>();
 
-  constructor(defaultOwnerId = 'local-owner') {
+  constructor(defaultOwnerId = 'local-owner', private readonly scope = '') {
     this.seedDefaults(defaultOwnerId);
     const template = this.notes.get('note:welcome-study');
     this.notes.clear(); this.notebooks.delete('notebook:matematicas');
     this.loadFromStorage();
     const old = this.notes.get('note:welcome-study');
     if (old && template && old.revision === 1 && old.title === template.title && old.content === template.content) this.notes.delete(old.id);
+    this.committed = { notebooks: structuredClone([...this.notebooks.values()]), notes: structuredClone([...this.notes.values()]) };
   }
 
   private seedDefaults(ownerId: string): void {
@@ -397,16 +400,18 @@ export class SecureNotesStore {
         notebooks: Array.from(this.notebooks.values()),
         notes: Array.from(this.notes.values()),
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      localStorage.setItem(this.scope ? `${STORAGE_KEY}:${this.scope}` : STORAGE_KEY, JSON.stringify(payload));
+      this.committed = structuredClone(payload);
     } catch {
-      // Ignore quota errors
+      if (this.committed) { this.notebooks = new Map(this.committed.notebooks.map(n => [n.id, structuredClone(n)])); this.notes = new Map(this.committed.notes.map(n => [n.id, structuredClone(n)])); }
+      throw new AppError('storage');
     }
   }
 
   private loadFromStorage(): void {
     try {
       if (typeof localStorage === 'undefined') return;
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(this.scope ? `${STORAGE_KEY}:${this.scope}` : STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw) as {
         notebooks?: SecureNotebook[];

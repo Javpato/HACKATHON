@@ -1,3 +1,6 @@
+import { INTERACTION_REACH } from './interactions';
+import { STREET_LIGHTS, lampSource, drawStreetLight } from './lights';
+import { t } from '../i18n';
 import { LIMITS, type Position } from '../protocol/types';
 import {
   PALETTE, animClock, contactShadow, drawAvatar, drawTree, fill,
@@ -40,7 +43,7 @@ export interface WorldAreaDefinition {
   bounds: Rect;
   defaultSpawn: Position;
   portals: readonly AreaPortal[];
-  lampPositions: readonly { x: number; y: number }[];
+  lampPositions: readonly { x: number; y: number; groundY?: number }[];
   isInterior: boolean;
 }
 
@@ -50,31 +53,16 @@ export const WORLD_AREAS: Record<BuiltinAreaId, WorldAreaDefinition> = {
     displayName: 'La aldea',
     subtitle: 'Seis parcelas residenciales conectadas con la Plaza Comunitaria y la Biblioteca.',
     bounds: { x: 0, y: 0, w: LIMITS.worldWidth, h: LIMITS.worldHeight },
-    defaultSpawn: { x: 384, y: 215, direction: 'down', moving: false },
+    defaultSpawn: { x: 240, y: 215, direction: 'down', moving: false },
     portals: [
-      {
-        id: 'portal:res-to-community',
-        fromArea: 'residential',
-        toArea: 'community',
-        label: 'Plaza Comunitaria →',
-        prompt: 'E · Ir a Plaza Comunitaria',
-        rect: { x: 716, y: 192, w: 50, h: 52 },
-        spawnAtTarget: { x: 72, y: 220, direction: 'right', moving: false },
-      },
-      {
-        id: 'portal:res-to-study',
-        fromArea: 'residential',
-        toArea: 'study',
-        label: '← Biblioteca y Estudio',
-        prompt: 'E · Ir a Biblioteca de Estudio',
-        rect: { x: 2, y: 192, w: 50, h: 52 },
-        spawnAtTarget: { x: 696, y: 224, direction: 'left', moving: false },
-      },
+      { id: 'portal:res-to-community', fromArea: 'residential', toArea: 'community',
+        label: '↑ Comunidad', prompt: 'E · Ir a Plaza Comunitaria',
+        rect: { x: 214, y: 28, w: 52, h: 44 }, spawnAtTarget: { x: 384, y: 352, direction: 'up', moving: false } },
+      { id: 'portal:res-to-study', fromArea: 'residential', toArea: 'study',
+        label: '↓ Biblioteca', prompt: 'E · Ir a Biblioteca de Estudio',
+        rect: { x: 214, y: 370, w: 52, h: 44 }, spawnAtTarget: { x: 384, y: 128, direction: 'down', moving: false } },
     ],
-    lampPositions: [
-      { x: 238, y: 188 },
-      { x: 530, y: 188 },
-    ],
+    lampPositions: STREET_LIGHTS.residential.map(lampSource),
     isInterior: false,
   },
   community: {
@@ -84,31 +72,11 @@ export const WORLD_AREAS: Record<BuiltinAreaId, WorldAreaDefinition> = {
     bounds: { x: 0, y: 0, w: LIMITS.worldWidth, h: LIMITS.worldHeight },
     defaultSpawn: { x: 384, y: 270, direction: 'down', moving: false },
     portals: [
-      {
-        id: 'portal:community-to-res',
-        fromArea: 'community',
-        toArea: 'residential',
-        label: '← Barrio Residencial',
-        prompt: 'E · Volver al Barrio Residencial',
-        rect: { x: 4, y: 192, w: 54, h: 54 },
-        spawnAtTarget: { x: 690, y: 215, direction: 'left', moving: false },
-      },
-      {
-        id: 'portal:community-to-study',
-        fromArea: 'community',
-        toArea: 'study',
-        label: 'Biblioteca de Estudio →',
-        prompt: 'E · Entrar a la Biblioteca de Estudio',
-        rect: { x: 710, y: 192, w: 54, h: 54 },
-        spawnAtTarget: { x: 74, y: 224, direction: 'right', moving: false },
-      },
+      { id: 'portal:community-to-res', fromArea: 'community', toArea: 'residential',
+        label: '↓ Mi barrio', prompt: 'E · Volver al Barrio Residencial',
+        rect: { x: 358, y: 372, w: 52, h: 44 }, spawnAtTarget: { x: 240, y: 88, direction: 'down', moving: false } },
     ],
-    lampPositions: [
-      { x: 190, y: 150 },
-      { x: 578, y: 150 },
-      { x: 190, y: 310 },
-      { x: 578, y: 310 },
-    ],
+    lampPositions: STREET_LIGHTS.community.map(lampSource),
     isInterior: false,
   },
   study: {
@@ -118,30 +86,11 @@ export const WORLD_AREAS: Record<BuiltinAreaId, WorldAreaDefinition> = {
     bounds: { x: 28, y: 68, w: 712, h: 338 },
     defaultSpawn: { x: 384, y: 330, direction: 'up', moving: false },
     portals: [
-      {
-        id: 'portal:study-to-community',
-        fromArea: 'study',
-        toArea: 'community',
-        label: '← Plaza Comunitaria',
-        prompt: 'E · Salir a Plaza Comunitaria',
-        rect: { x: 32, y: 196, w: 52, h: 54 },
-        spawnAtTarget: { x: 680, y: 220, direction: 'left', moving: false },
-      },
-      {
-        id: 'portal:study-to-res',
-        fromArea: 'study',
-        toArea: 'residential',
-        label: 'Barrio Residencial →',
-        prompt: 'E · Ir al Barrio Residencial',
-        rect: { x: 684, y: 196, w: 52, h: 54 },
-        spawnAtTarget: { x: 76, y: 215, direction: 'right', moving: false },
-      },
+      { id: 'portal:study-to-res', fromArea: 'study', toArea: 'residential',
+        label: '↑ Mi barrio', prompt: 'E · Ir al Barrio Residencial',
+        rect: { x: 358, y: 70, w: 52, h: 40 }, spawnAtTarget: { x: 240, y: 350, direction: 'up', moving: false } },
     ],
-    lampPositions: [
-      { x: 160, y: 140 },
-      { x: 384, y: 210 },
-      { x: 608, y: 140 },
-    ],
+    lampPositions: STREET_LIGHTS.study.map(lampSource),
     isInterior: true,
   },
 };
@@ -164,7 +113,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 68,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 48,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -189,7 +138,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 54,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 44,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -214,7 +163,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 38,
     layer: 'wall',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -240,7 +189,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 48,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 44,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -266,7 +215,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 48,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 44,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -295,7 +244,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 34,
     layer: 'wall',
     hasCollision: false,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -321,7 +270,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 34,
     layer: 'wall',
     hasCollision: false,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -347,7 +296,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 58,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -373,7 +322,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 58,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 48,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -388,17 +337,17 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     id: 'study:ollama-console',
     areaId: 'study',
     kind: 'ai_tutor_console',
-    defaultLabel: 'Consola IA Local (Ollama)',
-    displayName: 'Tutor IA Local · Ollama',
-    description: 'Puerta de enlace opcional a Ollama en el anfitrión para generar flashcards, quizzes y resúmenes.',
-    promptKey: 'E · Consola IA / Ollama',
+    defaultLabel: 'Configurar Ollama',
+    displayName: 'Configurar Ollama',
+    description: 'Instala, conecta y comprueba tu Ollama personal. Activa un modelo común o configura cada función por separado.',
+    promptKey: 'E · Configurar Ollama',
     x: 590,
     y: 92,
     w: 76,
     h: 54,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -423,7 +372,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 50,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -449,7 +398,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
     h: 50,
     layer: 'object',
     hasCollision: true,
-    interactionRadius: 46,
+    interactionRadius: INTERACTION_REACH,
     ownerId: null,
     visibility: 'everyone',
     usePermission: 'public',
@@ -462,7 +411,7 @@ export const DEFAULT_AREA_OBJECTS: readonly InteractiveObjectConfig[] = [
   },
 ];
 
-export function closestPortal(areaId: BuiltinAreaId, pos: Position, maxDistance = 36): AreaPortal | null {
+export function closestPortal(areaId: BuiltinAreaId, pos: Position, maxDistance = INTERACTION_REACH): AreaPortal | null {
   const area = WORLD_AREAS[areaId];
   if (!area) return null;
   let best: AreaPortal | null = null;
@@ -507,7 +456,8 @@ export function drawPortalSign(ctx: CanvasRenderingContext2D, portal: AreaPortal
 
   // Wooden signpost
   fill(ctx, earth0, cx - 3, y - 10, 6, 20);
-  const labelW = Math.max(88, Math.min(148, portal.label.length * 5.6 + 16));
+  const portalLabel = t(portal.label);
+  const labelW = Math.max(88, Math.min(148, portalLabel.length * 5.6 + 16));
   const lx = Math.max(6, Math.min(W - labelW - 6, cx - labelW / 2));
   plate(
     ctx,
@@ -518,7 +468,7 @@ export function drawPortalSign(ctx: CanvasRenderingContext2D, portal: AreaPortal
     nearby ? ember4 : PALETTE.paper[3],
     nearby ? ember0 : earth0,
   );
-  text(ctx, portal.label, lx + labelW / 2, y - 12, PALETTE.paper[0], 8.5);
+  text(ctx, portalLabel, lx + labelW / 2, y - 12, PALETTE.paper[0], 8.5);
 }
 
 function paintStationObject(
@@ -658,7 +608,8 @@ function paintStationObject(
   }
 
   // Nameplate below or above station
-  const label = obj.displayName.slice(0, 26);
+  // Default object names are app text; a name someone typed only changes if it matches one exactly.
+  const label = t(obj.displayName).slice(0, 26);
   ctx.font = '700 8.5px Inter, ui-sans-serif, system-ui, sans-serif';
   const tw = Math.min(148, Math.ceil(ctx.measureText(label).width) + 14);
   const ly = obj.layer === 'wall' ? y + h + 3 : y - 17;
@@ -721,7 +672,7 @@ export function drawCommunityPlaza(
 
   // Banner header on the north wall of the plaza
   plate(ctx, 264, 12, 240, 24, PALETTE.paper[3], earth0);
-  text(ctx, 'PLAZA COMUNITARIA · JUEGOS Y PROYECTOS', 384, 27, PALETTE.paper[0], 9.5);
+  text(ctx, t('PLAZA COMUNITARIA · JUEGOS Y PROYECTOS'), 384, 27, PALETTE.paper[0], 9.5);
 
   const area = WORLD_AREAS.community;
   for (const portal of area.portals) {
@@ -729,6 +680,7 @@ export function drawCommunityPlaza(
   }
 
   const sprites: Sprite[] = [];
+  for (const light of STREET_LIGHTS.community) sprites.push({ baseline: light.y, paint: () => drawStreetLight(ctx, light, time) });
   const trees = [
     { x: 64, y: 92 },
     { x: 704, y: 92 },
@@ -805,7 +757,7 @@ export function drawStudyLibrary(
 
   // Library header sign
   plate(ctx, 248, 10, 272, 24, PALETTE.paper[3], '#39614c');
-  text(ctx, 'BIBLIOTECA Y TALLER DE ESTUDIO', 384, 25, PALETTE.paper[0], 10);
+  text(ctx, t('BIBLIOTECA Y TALLER DE ESTUDIO'), 384, 25, PALETTE.paper[0], 10);
 
   const area = WORLD_AREAS.study;
   for (const portal of area.portals) {
@@ -813,6 +765,7 @@ export function drawStudyLibrary(
   }
 
   const sprites: Sprite[] = [];
+  for (const light of STREET_LIGHTS.study) sprites.push({ baseline: light.y, paint: () => drawStreetLight(ctx, light, time) });
   for (const obj of registry.listByArea('study')) {
     sprites.push({
       baseline: obj.layer === 'wall' ? obj.y : obj.y + obj.h,

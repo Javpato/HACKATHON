@@ -1,3 +1,4 @@
+import { AppError } from '../errors/messages';
 import { z } from 'zod';
 import { LIMITS, type BoardPoint, type BoardStroke } from '../protocol/types';
 import { isValidCustomSpriteDataUrl, sanitizeObjectDisplayName } from '../world/interactive-objects';
@@ -90,6 +91,12 @@ export class WhiteboardRegistry {
   constructor() {
     this.registerDefaultBoards();
     this.loadFromStorage();
+    for (const [boardId, elements] of this.elementsByBoard) {
+      const strokes = this.strokesByBoard.get(boardId) ?? [];
+      for (const element of elements) if (!strokes.some(s => s.id === element.id)) strokes.push({id:element.id,boardId,author:element.authorId,seq:Math.max(1,Math.floor(element.updatedAt)),tool:element.kind,color:element.color,width:element.width,points:element.points,text:element.text,deleted:element.deleted});
+      this.strokesByBoard.set(boardId,strokes);
+    }
+    this.elementsByBoard.clear();
   }
 
   private registerDefaultBoards(): void {
@@ -179,18 +186,28 @@ export class WhiteboardRegistry {
     return this.strokesByBoard.get(boardId) ?? [];
   }
 
-  saveStroke(boardId: string, stroke: BoardStroke): void {
-    const list = this.strokesByBoard.get(boardId) ?? [];
-    const existingIdx = list.findIndex((s) => s.id === stroke.id);
-    const normalized: BoardStroke = { ...stroke, boardId };
-    if (existingIdx >= 0) {
-      list[existingIdx] = normalized;
-    } else if (list.length < LIMITS.boardOperations) {
-      list.push(normalized);
+  commitStrokes(boardId: string, changes: BoardStroke[]): void {
+    const byId = new Map((this.strokesByBoard.get(boardId) ?? []).map(s => [s.id, structuredClone(s)]));
+    if (changes.length > 128) throw new AppError('invalid', 'Selecciona menos objetos para guardar esta operación.');
+    for (const stroke of changes) {
+      const old = byId.get(stroke.id);
+      if (old && old.author !== stroke.author) throw new AppError('invalid', 'Solo puedes modificar tus propios objetos.');
+      if (old?.deleted || old && old.seq >= stroke.seq) continue;
+      byId.set(stroke.id, { ...structuredClone(stroke), boardId });
     }
-    this.strokesByBoard.set(boardId, list);
-    this.saveToStorage();
+    if (byId.size > LIMITS.boardOperations) throw new AppError('invalid', 'Esta pizarra ha alcanzado su capacidad.');
+    const next = new Map(this.strokesByBoard); next.set(boardId, [...byId.values()]);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify({ metadata:[...this.metadata.entries()], strokes:[...next.entries()],elements:[] }));
+    } catch { throw new AppError('storage'); }
+    this.strokesByBoard = next;
   }
+  replaceStrokes(boardId:string,strokes:BoardStroke[]):void {
+    const next=new Map(this.strokesByBoard);next.set(boardId,structuredClone(strokes));
+    try { if(typeof localStorage!=='undefined')localStorage.setItem(STORAGE_KEY,JSON.stringify({metadata:[...this.metadata.entries()],strokes:[...next.entries()],elements:[]})); }catch{throw new AppError('storage');}
+    this.strokesByBoard=next;
+  }
+  saveStroke(boardId: string, stroke: BoardStroke): void { this.commitStrokes(boardId, [stroke]); }
 
   markStrokeDeleted(boardId: string, strokeId: string): boolean {
     const list = this.strokesByBoard.get(boardId);

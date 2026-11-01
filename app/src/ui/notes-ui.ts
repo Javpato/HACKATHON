@@ -1,3 +1,5 @@
+import { msg, t, defaultText, defaultMsg, setDisplayText, setDisplayAttribute, getLocale, formatDate, type DisplayText } from '../i18n';
+import { errorMessage } from '../errors/messages';
 import { renderSafeMarkdownWithLatex, type SecureNote, type SecureNotesStore } from '../notes/secure-notes';
 import { mathReady } from '../whiteboard/math';
 import { monoIcon } from './pixel-icons';
@@ -11,18 +13,18 @@ import { monoIcon } from './pixel-icons';
 export type BlockType = 'p' | 'h1' | 'h2' | 'h3' | 'bullet' | 'number' | 'todo' | 'quote' | 'code' | 'math' | 'divider';
 export interface Block { type: BlockType; text: string; done?: boolean }
 
-const BLOCK_MENU: { type: BlockType; label: string; hint: string; keys: string }[] = [
-  { type: 'p', label: 'Texto', hint: 'Un párrafo normal', keys: 'texto parrafo' },
-  { type: 'h1', label: 'Título 1', hint: 'Encabezado grande', keys: 'titulo h1 encabezado' },
-  { type: 'h2', label: 'Título 2', hint: 'Encabezado mediano', keys: 'titulo h2 subtitulo' },
-  { type: 'h3', label: 'Título 3', hint: 'Encabezado pequeño', keys: 'titulo h3' },
-  { type: 'todo', label: 'Lista de tareas', hint: 'Casillas para marcar', keys: 'tarea todo check casilla' },
-  { type: 'bullet', label: 'Lista', hint: 'Lista con viñetas', keys: 'lista viñeta bullet' },
-  { type: 'number', label: 'Lista numerada', hint: '1, 2, 3…', keys: 'numerada numero' },
-  { type: 'quote', label: 'Cita', hint: 'Resaltar una idea', keys: 'cita quote' },
-  { type: 'math', label: 'Fórmula', hint: 'LaTeX en bloque', keys: 'formula latex ecuacion math' },
-  { type: 'code', label: 'Código', hint: 'Texto monoespaciado', keys: 'codigo code' },
-  { type: 'divider', label: 'Separador', hint: 'Línea horizontal', keys: 'separador linea divider' },
+const BLOCK_MENU: { type: BlockType; label: DisplayText; hint: DisplayText; keys: string }[] = [
+  { type: 'p', label: msg('Texto'), hint: msg('Un párrafo normal'), keys: 'texto parrafo' },
+  { type: 'h1', label: msg('Título 1'), hint: msg('Encabezado grande'), keys: 'titulo h1 encabezado' },
+  { type: 'h2', label: msg('Título 2'), hint: msg('Encabezado mediano'), keys: 'titulo h2 subtitulo' },
+  { type: 'h3', label: msg('Título 3'), hint: msg('Encabezado pequeño'), keys: 'titulo h3' },
+  { type: 'todo', label: msg('Lista de tareas'), hint: msg('Casillas para marcar'), keys: 'tarea todo check casilla' },
+  { type: 'bullet', label: msg('Lista'), hint: msg('Lista con viñetas'), keys: 'lista viñeta bullet' },
+  { type: 'number', label: msg('Lista numerada'), hint: '1, 2, 3…', keys: 'numerada numero' },
+  { type: 'quote', label: msg('Cita'), hint: msg('Resaltar una idea'), keys: 'cita quote' },
+  { type: 'math', label: msg('Fórmula'), hint: msg('LaTeX en bloque'), keys: 'formula latex ecuacion math' },
+  { type: 'code', label: msg('Código'), hint: msg('Texto monoespaciado'), keys: 'codigo code' },
+  { type: 'divider', label: msg('Separador'), hint: msg('Línea horizontal'), keys: 'separador linea divider' },
 ];
 
 const SHORTCUTS: [RegExp, BlockType, boolean?][] = [
@@ -106,13 +108,13 @@ function typesetMath(container: HTMLElement, color = '#37352f'): void {
   }
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text: DisplayText = ''): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text) node.textContent = text;
+  if (text) setDisplayText(node, text);
   return node;
 }
-function btn(label: string, className: string): HTMLButtonElement {
+function btn(label: DisplayText, className: string): HTMLButtonElement {
   const b = el('button', className, label);
   b.type = 'button';
   return b;
@@ -153,13 +155,13 @@ function placeCaret(node: HTMLElement, offset: number): void {
   sel.addRange(range);
 }
 
-function timeAgo(ms: number): string {
+function timeAgo(ms: number): DisplayText {
   const min = Math.round((Date.now() - ms) / 60_000);
-  if (min < 1) return 'ahora mismo';
-  if (min < 60) return `hace ${min} min`;
+  if (min < 1) return msg('ahora mismo');
+  if (min < 60) return msg('hace {n} min', { n: min });
   const h = Math.round(min / 60);
-  if (h < 24) return `hace ${h} h`;
-  return new Date(ms).toLocaleDateString('es');
+  if (h < 24) return msg('hace {n} h', { n: h });
+  return formatDate(ms, { dateStyle: 'medium' });
 }
 
 export interface NotesPanelContext {
@@ -178,6 +180,7 @@ export class NotesPanel {
   private query = '';
   private blocks: Block[] = [];
   private blockEls: HTMLElement[] = [];
+  private drafts = new Map<string, {title:string;content:string}>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private menu: { index: number; filter: string; active: number; el: HTMLElement } | null = null;
   private pageMenuOpen = false;
@@ -185,13 +188,15 @@ export class NotesPanel {
   private page = el('article', 'nb-page');
 
   constructor(private readonly ctx: NotesPanelContext) {
-    this.root.setAttribute('aria-label', 'Apuntes');
+    setDisplayAttribute(this.root, 'aria-label', msg('Apuntes'));
     this.root.append(this.sidebar, this.page);
   }
 
+  openNotebook(id: string): void { this.flush(); this.notebookId = id; this.noteId = this.ctx.store.listNotes(this.ctx.actorId(), id)[0]?.id ?? null; }
+
   mount(container: HTMLElement): void {
     container.replaceChildren(this.root);
-    const notes = this.ctx.store.listNotes(this.ctx.actorId());
+    const notes = this.ctx.store.listNotes(this.ctx.actorId(), this.notebookId);
     if (!this.noteId || !this.ctx.store.getNote(this.noteId, this.ctx.actorId())) this.noteId = notes[0]?.id ?? null;
     if (this.noteId) this.notebookId = this.ctx.store.getNote(this.noteId, this.ctx.actorId())!.notebookId;
     this.renderSidebar();
@@ -214,29 +219,28 @@ export class NotesPanel {
     const actor = this.ctx.actorId();
     this.sidebar.replaceChildren();
     const head = el('div', 'nb-side-head');
-    head.append(el('strong', '', 'Apuntes'), el('span', 'nb-local', 'En este equipo'));
+    head.append(el('strong', '', msg('Apuntes')), el('span', 'nb-local', msg('En este equipo')));
     const search = el('label', 'nb-search');
     const input = el('input');
     input.type = 'search';
-    input.placeholder = 'Buscar';
+    setDisplayAttribute(input, "placeholder", msg('Buscar'));
     input.value = this.query;
-    input.setAttribute('aria-label', 'Buscar apuntes');
+    setDisplayAttribute(input, 'aria-label', msg('Buscar apuntes'));
     input.addEventListener('input', () => { this.query = input.value; this.renderTree(tree); });
     search.append(monoIcon('search', 12), input);
     const tree = el('div', 'nb-tree');
     this.renderTree(tree);
     const addBook = btn('', 'nb-side-action');
-    addBook.append(monoIcon('plus', 10), el('span', '', 'Nuevo cuaderno'));
+    addBook.append(monoIcon('plus', 10), el('span', '', msg('Nuevo cuaderno')));
     addBook.addEventListener('click', () => {
       const row = el('div', 'nb-new-book');
       const name = el('input');
-      name.placeholder = 'Nombre del cuaderno';
+      setDisplayAttribute(name, "placeholder", msg('Nombre del cuaderno'));
       name.maxLength = 60;
       const commit = () => {
         if (name.value.trim()) {
-          const book = this.ctx.store.createNotebook(name.value, actor);
-          this.notebookId = book.id;
-          this.createPage(book.id);
+          try { const book = this.ctx.store.createNotebook(name.value, actor);
+          this.notebookId = book.id; this.createPage(book.id); } catch (error) { this.ctx.notify(errorMessage(error)); }
         } else this.renderSidebar();
       };
       name.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') this.renderSidebar(); });
@@ -256,31 +260,32 @@ export class NotesPanel {
       if (this.query && !notes.length) continue;
       const group = el('div', 'nb-book');
       const title = el('div', 'nb-book-title');
-      title.append(el('span', '', book.name));
+      title.append(el('span', '', defaultMsg(book.name)));
       const add = btn('', 'nb-icon-btn');
       add.append(monoIcon('plus', 10));
-      add.title = 'Nueva página';
-      add.setAttribute('aria-label', `Nueva página en ${book.name}`);
+      setDisplayAttribute(add, "title", msg('Nueva página'));
+      setDisplayAttribute(add, 'aria-label', msg("Nueva página en {p0}", { p0: defaultText(book.name) }));
       add.addEventListener('click', () => this.createPage(book.id));
       title.append(add);
       group.append(title);
       for (const note of notes) {
         const row = btn('', 'nb-page-row');
         row.classList.toggle('is-active', note.id === this.noteId);
-        row.append(monoIcon('notes', 12), el('span', '', note.title || 'Sin título'));
+        row.append(monoIcon('notes', 12), el('span', '', note.title ? defaultMsg(note.title) : msg('Sin título')));
         row.addEventListener('click', () => this.open(note.id));
         group.append(row);
       }
-      if (!notes.length) group.append(el('p', 'nb-empty-book', 'Sin páginas'));
+      if (!notes.length) group.append(el('p', 'nb-empty-book', msg('Sin páginas')));
       tree.append(group);
     }
   }
 
   private createPage(notebookId: string): void {
-    const note = this.ctx.store.createNote({ notebookId, title: 'Sin título', content: '', ownerId: 'local-owner' });
-    this.notebookId = notebookId;
-    this.open(note.id);
-    queueMicrotask(() => { const t = this.page.querySelector<HTMLElement>('.nb-title'); if (t) { t.focus(); document.getSelection()?.selectAllChildren(t); } });
+    try {
+      const note = this.ctx.store.createNote({ notebookId, title: 'Sin título', content: '', ownerId: 'local-owner' });
+      this.notebookId = notebookId; this.open(note.id);
+      queueMicrotask(() => { const t = this.page.querySelector<HTMLElement>('.nb-title'); if (t) { t.focus(); document.getSelection()?.selectAllChildren(t); } });
+    } catch (error) { this.ctx.notify(errorMessage(error)); }
   }
 
   private renderPage(): void {
@@ -288,8 +293,8 @@ export class NotesPanel {
     const note = this.note();
     if (!note) {
       const empty = el('div', 'nb-blank');
-      empty.append(el('h2', '', 'Aún no hay páginas'), el('p', '', 'Crea una página en un cuaderno para empezar.'));
-      const create = btn('Nueva página', 'nb-primary');
+      empty.append(el('h2', '', msg('Aún no hay páginas')), el('p', '', msg('Crea una página en un cuaderno para empezar.')));
+      const create = btn(msg('Nueva página'), 'nb-primary');
       create.addEventListener('click', () => this.createPage(this.notebookId));
       empty.append(create);
       const close = this.closeButton();
@@ -300,12 +305,12 @@ export class NotesPanel {
     const book = this.ctx.store.listNotebooks().find((b) => b.id === note.notebookId);
     const top = el('div', 'nb-topbar');
     const crumbs = el('div', 'nb-crumbs');
-    crumbs.append(el('span', '', book?.name ?? 'Cuaderno'), el('span', 'nb-sep', '/'), el('span', '', note.title || 'Sin título'));
+    crumbs.append(el('span', '', book ? defaultMsg(book.name) : msg('Cuaderno')), el('span', 'nb-sep', '/'), el('span', '', note.title ? defaultMsg(note.title) : msg('Sin título')));
     const actions = el('div', 'nb-top-actions');
-    actions.append(el('span', 'nb-edited', `Editado ${timeAgo(note.updatedAt)}`));
+    actions.append(el('span', 'nb-edited', msg("Editado {p0}", { p0: timeAgo(note.updatedAt) })));
     const more = btn('', 'nb-icon-btn');
     more.append(el('span', 'nb-dots', '•••'));
-    more.setAttribute('aria-label', 'Más opciones de la página');
+    setDisplayAttribute(more, 'aria-label', msg('Más opciones de la página'));
     more.setAttribute('aria-expanded', String(this.pageMenuOpen));
     more.addEventListener('click', () => { this.pageMenuOpen = !this.pageMenuOpen; this.renderPage(); });
     actions.append(more, this.closeButton());
@@ -315,16 +320,19 @@ export class NotesPanel {
     const body = el('div', 'nb-body');
     const title = el('h1', 'nb-title');
     makeEditable(title, canWrite);
-    title.textContent = note.title === 'Sin título' ? '' : note.title;
-    title.dataset.placeholder = 'Sin título';
-    title.setAttribute('aria-label', 'Título de la página');
+    const draft = this.drafts.get(note.id);
+    title.textContent = draft?.title ?? (note.title === 'Sin título' ? '' : defaultText(note.title));
+    setDisplayAttribute(title, "data-placeholder", msg('Sin título'));
+    setDisplayAttribute(title, 'aria-label', msg('Título de la página'));
     title.dataset.testid = 'secure-note-title';
     title.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); this.focusBlock(0, 0); }
     });
     title.addEventListener('input', () => this.scheduleSave());
 
-    this.blocks = parseBlocks(note.content);
+    if (draft) { const warning = el('p', 'sv-feedback is-error', msg('Hay cambios sin guardar. Puedes reintentar sin perder este borrador.')); const retry = btn(msg('Volver a guardar'), 'nb-btn'); retry.onclick = () => { if (this.saveTimer) clearTimeout(this.saveTimer); this.saveTimer = setTimeout(() => this.flush(), 0); }; body.append(warning, retry); }
+    // Lines that are still the app's sample text follow the language; lines someone wrote stay as written.
+    this.blocks = parseBlocks(draft?.content ?? note.content.split('\n').map(defaultText).join('\n'));
     const list = el('div', 'nb-blocks');
     list.dataset.testid = 'secure-note-content-input';
     this.blockEls = this.blocks.map((block, i) => this.blockElement(block, i, canWrite));
@@ -337,14 +345,14 @@ export class NotesPanel {
       }
     });
     body.append(title, list);
-    if (canWrite) body.append(el('p', 'nb-hint', 'Escribe «/» para elegir un tipo de bloque. Atajos: # título, - lista, [] tarea, > cita, $$ fórmula.'));
+    if (canWrite) body.append(el('p', 'nb-hint', msg('Escribe «/» para elegir un tipo de bloque. Atajos: # título, - lista, [] tarea, > cita, $$ fórmula.')));
     this.page.append(top, body);
   }
 
   private closeButton(): HTMLButtonElement {
     const close = btn('', 'nb-icon-btn');
     close.append(monoIcon('close', 12));
-    close.setAttribute('aria-label', 'Cerrar apuntes');
+    setDisplayAttribute(close, 'aria-label', msg('Cerrar apuntes'));
     close.dataset.testid = 'expansion-modal-close';
     close.addEventListener('click', () => this.ctx.close());
     return close;
@@ -353,7 +361,7 @@ export class NotesPanel {
   private pageMenu(note: SecureNote, canWrite: boolean): HTMLElement {
     const menu = el('div', 'nb-popover');
     const item = (label: string, action: () => void, disabled = false) => {
-      const b = btn(label, 'nb-menu-item');
+      const b = btn(msg(label), 'nb-menu-item');
       b.disabled = disabled;
       b.addEventListener('click', () => { this.pageMenuOpen = false; action(); });
       menu.append(b);
@@ -376,7 +384,7 @@ export class NotesPanel {
         this.noteId = this.ctx.store.listNotes(this.ctx.actorId())[0]?.id ?? null;
         this.renderSidebar();
         this.renderPage();
-      } catch (e) { this.ctx.notify(e instanceof Error ? e.message : 'No se pudo borrar.'); }
+      } catch (e) { this.ctx.notify(errorMessage(e, 'No se pudo borrar el apunte.')); }
     }, !canWrite);
     return menu;
   }
@@ -397,7 +405,7 @@ export class NotesPanel {
       box.type = 'checkbox';
       box.checked = !!block.done;
       box.disabled = !canWrite;
-      box.setAttribute('aria-label', 'Hecho');
+      setDisplayAttribute(box, 'aria-label', msg('Hecho'));
       box.addEventListener('change', () => { block.done = box.checked; row.classList.toggle('is-done', box.checked); this.scheduleSave(); });
       row.classList.toggle('is-done', !!block.done);
       row.append(box);
@@ -410,7 +418,7 @@ export class NotesPanel {
     const text: HTMLElement = el(block.type === 'code' ? 'pre' : 'div', 'nb-text');
     makeEditable(text, canWrite);
     text.spellcheck = block.type !== 'code' && block.type !== 'math';
-    text.dataset.placeholder = index === 0 && this.blocks.length === 1 ? 'Escribe algo, o «/» para ver bloques…' : block.type === 'math' ? 'Fórmula LaTeX' : block.type.startsWith('h') ? 'Título' : '';
+    setDisplayAttribute(text, "data-placeholder", index === 0 && this.blocks.length === 1 ? msg('Escribe algo, o «/» para ver bloques…') : block.type === 'math' ? msg('Fórmula LaTeX') : block.type.startsWith('h') ? msg('Título') : '');
     const showRendered = () => {
       if (block.type === 'math' && block.text.trim()) {
         text.innerHTML = renderSafeMarkdownWithLatex(`$$${block.text}$$`);
@@ -501,7 +509,7 @@ export class NotesPanel {
 
   private menuOptions(): typeof BLOCK_MENU {
     const f = (this.menu?.filter ?? '').toLowerCase();
-    return BLOCK_MENU.filter((o) => !f || o.label.toLowerCase().includes(f) || o.keys.includes(f));
+    return BLOCK_MENU.filter((o) => !f || t(o.label).toLowerCase().includes(f) || o.keys.includes(f));
   }
 
   private openMenu(index: number, filter: string): void {
@@ -520,8 +528,8 @@ export class NotesPanel {
   private paintMenu(): void {
     if (!this.menu) return;
     const options = this.menuOptions();
-    this.menu.el.replaceChildren(el('div', 'nb-slash-title', 'Bloques'));
-    if (!options.length) this.menu.el.append(el('p', 'nb-slash-none', 'Sin resultados'));
+    this.menu.el.replaceChildren(el('div', 'nb-slash-title', msg('Bloques')));
+    if (!options.length) this.menu.el.append(el('p', 'nb-slash-none', msg('Sin resultados')));
     options.forEach((o, i) => {
       const item = btn('', 'nb-slash-item');
       item.setAttribute('role', 'option');
@@ -586,15 +594,17 @@ export class NotesPanel {
     const titleEl = this.page.querySelector<HTMLElement>('.nb-title');
     const title = titleEl?.textContent?.trim() || 'Sin título';
     try {
-      this.ctx.store.updateNote(note.id, { title, content: serializeBlocks(this.blocks) }, this.ctx.actorId());
+      this.ctx.store.updateNote(note.id, { title, content: serializeBlocks(this.blocks) }, this.ctx.actorId()); this.drafts.delete(note.id);
       const active = this.sidebar.querySelector('.nb-page-row.is-active span');
       if (active && active.textContent !== title) active.textContent = title;
       const crumb = this.page.querySelector('.nb-crumbs span:last-child');
       if (crumb) crumb.textContent = title;
       const edited = this.page.querySelector('.nb-edited');
-      if (edited) edited.textContent = 'Editado ahora mismo';
+      if (edited) setDisplayText(edited, msg('Editado ahora mismo'));
     } catch (e) {
-      this.ctx.notify(e instanceof Error ? e.message : 'No se pudo guardar el apunte.');
+      this.drafts.set(note.id, { title, content: serializeBlocks(this.blocks) });
+      const edited = this.page.querySelector('.nb-edited'); if (edited) setDisplayText(edited, msg('Sin guardar · vuelve a editar para reintentar'));
+      this.ctx.notify(errorMessage(e, 'No se pudo guardar el apunte. Conservamos tus cambios para que puedas reintentarlo.'));
     }
   }
 }

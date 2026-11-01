@@ -18,6 +18,8 @@ describe('wardrobe', () => {
     expect(normalizeAppearance({ hairStyle: 'beanie' }).headwear).toBe('beanie');
   });
   it('defaults old looks to the masculine body and keeps a feminine choice', () => {
+    expect(normalizeAppearance({accessory:'headphones'}).headphonesColor).toBe('#cf6f3c');
+    expect(normalizeAppearance({headphonesColor:'#123456'}).headphonesColor).toBe('#123456');
     expect(normalizeAppearance({ outfit: 'suit' }).body).toBe('masculine');
     expect(normalizeAppearance({ body: 'feminine', hairStyle: 'ponytail' })).toMatchObject({ body: 'feminine', hairStyle: 'ponytail' });
     expect(normalizeAppearance({ body: 'robot' }).body).toBe('masculine');

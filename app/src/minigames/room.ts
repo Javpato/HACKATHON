@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+import { errorMessage } from '../errors/messages';
 import type { AppActions, AppChannel, AppMessage } from '../protocol/types';
 
 /**
@@ -26,8 +28,36 @@ export interface RoomContext {
 type Wire<Action, View> =
   | { t: 'hello' }
   | { t: 'act'; a: Action }
-  | { t: 'view'; v: View }
+  | { t: 'cmd'; c: RoomCommand; d?: unknown }
+  | { t: 'view'; v: View; lead?: boolean }
+  | { t: 'jobs'; jobs: unknown[] }
   | { t: 'error'; m: string };
+
+/** Organiser commands. Peer hosts apply them locally; a server applies the same function remotely. */
+export type RoomCommand = 'stop' | 'study.setQuiz' | 'bots.enable' | 'bots.disable' | 'bots.submit';
+/** Virtual host fingerprint used by a self-hosted server (see server/contracts). */
+export const REMOTE_AUTHORITY = '0'.repeat(64);
+/** Scope of an activity copy that belongs to one room of one house; '' is the village-wide one. */
+export const ACTIVITY_SCOPE = /^room:[a-f0-9]{64}:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}$/;
+export function activityScope(owner: string, floorId: string, roomId: string): string {
+  const scope = `room:${owner}:${floorId}:${roomId}`;
+  return ACTIVITY_SCOPE.test(scope) ? scope : '';
+}
+
+type Commandable = { cancel?(now: number): void; setQuiz?(quiz: unknown): void; setAiBotsEnabled?(on: boolean): void; submitBot?(key: string, id: string, answer: unknown, now: number): boolean; botJobs?(now: number): unknown[] };
+/** Returns true when the visible state changed. Throws a user-facing error for anything not allowed. */
+export function applyRoomCommand(engine: unknown, command: string, data: unknown, now: number): boolean {
+  const target = engine as Commandable;
+  if (command === 'stop' && target.cancel) { target.cancel(now); return true; }
+  if (command === 'study.setQuiz' && target.setQuiz) { target.setQuiz(data); return true; }
+  if ((command === 'bots.enable' || command === 'bots.disable') && target.setAiBotsEnabled) { target.setAiBotsEnabled(command === 'bots.enable'); return true; }
+  if (command === 'bots.submit' && target.submitBot) {
+    const job = data as { key?: unknown; id?: unknown; answer?: unknown } | null;
+    if (typeof job?.key !== 'string' || typeof job.id !== 'string' || !job.answer || typeof job.answer !== 'object') throw new Error('Respuesta de bot inválida.');
+    return target.submitBot(job.key, job.id, job.answer, now);
+  }
+  throw new Error('Esta actividad no admite esa orden.');
+}
 
 const TICK_MS = 400;
 
@@ -39,12 +69,17 @@ export class SharedRoom<Action, View, Engine extends RoomEngine<Action, View> = 
   private timer: ReturnType<typeof setInterval> | null = null;
   private offApp: () => void;
   private listeners = new Set<(view: View | null, error: string | null) => void>();
+  /** Server mode: whether the server says I organise this activity. */
+  private lead = false;
+  private jobWaiters: ((jobs: unknown[]) => void)[] = [];
 
   constructor(
     private readonly channel: AppChannel,
-    private readonly actions: Pick<AppActions, 'sendApp' | 'onApp'>,
+    private readonly actions: Pick<AppActions, 'sendApp' | 'onApp'> & Partial<Pick<AppActions, 'voiceCommand'>>,
     private readonly context: () => RoomContext,
     private readonly createEngine: () => Engine,
+    /** '' is the village-wide activity; a room scope (see activityScope) keeps a separate copy per room. */
+    readonly scope: string = '',
   ) {
     this.offApp = actions.onApp((message) => this.receive(message));
   }
@@ -57,7 +92,7 @@ export class SharedRoom<Action, View, Engine extends RoomEngine<Action, View> = 
     this.modeKey = key;
     this.engine = this.isAuthority() ? this.createEngine() : null;
     this.watchers.clear();
-    this.view = null;
+    this.view = null; this.lead = false;
     this.ensureTimer();
     if (this.engine) this.publish();
     else this.sendToHost({ t: 'hello' });
@@ -83,19 +118,49 @@ export class SharedRoom<Action, View, Engine extends RoomEngine<Action, View> = 
         this.engine.apply(this.context().selfId, action, Date.now());
         this.publish();
       } catch (error) {
-        this.emit(this.view, error instanceof Error ? error.message : 'Acción no permitida.');
+        this.emit(this.view, errorMessage(error));
       }
       return;
     }
     if (!this.sendToHost({ t: 'act', a: action })) this.emit(this.view, 'No se pudo contactar con el anfitrión de la aldea.');
   }
 
-  canStop(): boolean { return this.isAuthority(); }
+  /** The peer host, or in server mode the first participant still present, organises. */
+  canLead(): boolean { return this.isAuthority() || (this.remote() && this.lead); }
+  canStop(): boolean { return this.canLead(); }
   stop(): void {
     this.sync();
+    if (this.remote()) { if (this.lead) this.sendToHost({ t: 'cmd', c: 'stop' }); return; }
     if (!this.isAuthority() || !this.engine?.cancel) return;
     this.engine.cancel(Date.now());
+    this.stopVoice();
     this.publish();
+  }
+  private stopVoice(): void {
+    if (this.channel === 'werewolves' || this.channel === 'gartic' || this.channel === 'study') this.actions.voiceCommand?.({ action: 'game.end', game: this.channel });
+  }
+  /** Organiser command, applied here when this device is the authority, otherwise sent to it. */
+  command(command: RoomCommand, data?: unknown): void {
+    this.sync();
+    if (this.engine) {
+      try { if (applyRoomCommand(this.engine, command, data, Date.now())) { if (command === 'stop') this.stopVoice(); this.publish(); } }
+      catch (error) { this.emit(this.view, errorMessage(error)); }
+      return;
+    }
+    if (!this.sendToHost({ t: 'cmd', c: command, d: data })) this.emit(this.view, 'No se pudo contactar con el anfitrión de la aldea.');
+  }
+  /** Pending bot turns, from the local engine or from the server for its organiser. */
+  async botJobs(): Promise<unknown[]> {
+    this.sync();
+    const local = this.engine as unknown as Commandable | null;
+    if (local) return local.botJobs?.(Date.now()) ?? [];
+    if (!this.remote() || !this.lead) return [];
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { this.jobWaiters = this.jobWaiters.filter(w => w !== done); resolve([]); }, 5_000);
+      const done = (jobs: unknown[]) => { clearTimeout(timer); resolve(jobs); };
+      this.jobWaiters.push(done);
+      if (!this.sendToHost({ t: 'cmd', c: 'bots.jobs' as RoomCommand })) done([]);
+    });
   }
 
   current(): View | null { return this.view; }
@@ -113,6 +178,7 @@ export class SharedRoom<Action, View, Engine extends RoomEngine<Action, View> = 
     this.listeners.clear();
   }
 
+  private remote(): boolean { return this.context().hostId === REMOTE_AUTHORITY; }
   private isAuthority(): boolean {
     const { selfId, hostId } = this.context();
     return hostId === null || hostId === selfId;
@@ -147,6 +213,7 @@ export class SharedRoom<Action, View, Engine extends RoomEngine<Action, View> = 
     let wire: Wire<Action, View>;
     try { wire = JSON.parse(message.data) as Wire<Action, View>; } catch { return; }
     if (!wire || typeof wire !== 'object') return;
+    if (((wire as { s?: unknown }).s ?? '') !== this.scope) return; // another room's copy of this activity
     this.sync();
     const { hostId } = this.context();
     if (this.engine) {
@@ -155,13 +222,14 @@ export class SharedRoom<Action, View, Engine extends RoomEngine<Action, View> = 
       if (wire.t === 'act') {
         this.watchers.add(message.from);
         try { this.engine.apply(message.from, wire.a, Date.now()); this.publish(); }
-        catch (error) { this.sendTo(message.from, { t: 'error', m: error instanceof Error ? error.message.slice(0, 200) : 'Acción no permitida.' }); }
+        catch (error) { this.sendTo(message.from, { t: 'error', m: errorMessage(error) }); }
       }
       return;
     }
     if (message.from !== hostId) return;
-    if (wire.t === 'view') { this.view = wire.v; this.emit(this.view, null); }
-    else if (wire.t === 'error') this.emit(this.view, String(wire.m).slice(0, 200));
+    if (wire.t === 'view') { this.view = wire.v; this.lead = this.remote() && wire.lead === true; this.emit(this.view, null); }
+    else if (wire.t === 'jobs') { const waiters = this.jobWaiters.splice(0); for (const done of waiters) done(Array.isArray(wire.jobs) ? wire.jobs : []); }
+    else if (wire.t === 'error') this.emit(this.view, t(String(wire.m).slice(0, 200)));
   }
 
   private sendToHost(wire: Wire<Action, View>): boolean {
@@ -170,7 +238,7 @@ export class SharedRoom<Action, View, Engine extends RoomEngine<Action, View> = 
   }
 
   private sendTo(id: string, wire: Wire<Action, View>): boolean {
-    return this.actions.sendApp(this.channel, id, JSON.stringify(wire));
+    return this.actions.sendApp(this.channel, id, JSON.stringify(this.scope ? { ...wire, s: this.scope } : wire));
   }
 
   private emit(view: View | null, error: string | null): void {

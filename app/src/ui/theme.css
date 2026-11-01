@@ -159,3 +159,9 @@
   .sv-wardrobe-item { font-size: 12px; }
   .sv-wardrobe-foot button { flex: 1; }
 }
+
+/* Phones and tablets: while decorating, the toolbar sits above the HUD and touch controls (z 40/45),
+   in one compact scrollable row, and the walking controls step aside so taps reach the room. */
+.sv-mobile-device .sv-decoration-toolbar { z-index: 50; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior: contain; gap: 6px; padding: 8px; bottom: max(10px, env(safe-area-inset-bottom)); width: calc(100vw - 20px); box-sizing: border-box; scrollbar-width: none; }
+.sv-mobile-device .sv-decoration-toolbar button { flex: none; min-height: 40px; padding: 6px 12px; white-space: nowrap; }
+.sv-mobile-device.sv-decorating :is([data-hud-widget="movement"], [data-hud-widget="interact"], [data-hud-widget="sprint"], [data-hud-widget="ptt"]) { display: none !important; }

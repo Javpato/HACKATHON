@@ -1,3 +1,4 @@
+import { INTERACTION_REACH } from '../world/interactions';
 import { LIMITS, type Furniture, type FurnitureKind, type Position, type PublicHouse } from '../protocol/types';
 import { type Rect, stepPosition } from '../world/model';
 
@@ -6,7 +7,7 @@ export const HOUSE_BOUNDS: Rect = { x: 28, y: 72, w: 712, h: 334 };
 
 /** The doorway at the bottom of every room, on the doormat. */
 export const HOUSE_DOOR = { x: 384, y: 396 } as const;
-const DOOR_REACH = 40;
+const DOOR_REACH = INTERACTION_REACH;
 
 /**
  * Whether the character is standing at the doorway. Leaving with E is only
@@ -14,12 +15,12 @@ const DOOR_REACH = 40;
  * the player to the village. Spawn (384,344) is deliberately out of reach.
  */
 export function atHouseDoor(position: Position): boolean {
-  return Math.abs(position.x - HOUSE_DOOR.x) <= DOOR_REACH && HOUSE_DOOR.y - position.y <= DOOR_REACH;
+  return Math.hypot(position.x-HOUSE_DOOR.x,position.y-HOUSE_DOOR.y)<=DOOR_REACH;
 }
-export const FURNITURE_KINDS: readonly FurnitureKind[] = ['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet'];
+export const FURNITURE_KINDS: readonly FurnitureKind[] = ['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet', 'flashcards'];
 export const FURNITURE_LABELS: Record<FurnitureKind, string> = {
   desk: 'Escritorio', bookshelf: 'Librería', board: 'Pizarra', plant: 'Planta',
-  table: 'Mesa', frame: 'Cuadro', cabinet: 'Armario',
+  table: 'Mesa', frame: 'Cuadro', cabinet: 'Armario', flashcards: 'Tarjetas de repaso',
 };
 
 export const FURNITURE_ACTION_LABELS: Record<FurnitureKind, string> = {
@@ -30,6 +31,7 @@ export const FURNITURE_ACTION_LABELS: Record<FurnitureKind, string> = {
   table: 'Mesa de estudio y voz',
   frame: 'Ver cuadro / imagen',
   cabinet: 'Cambiar de ropa',
+  flashcards: 'Repasar tarjetas',
 };
 
 export const FURNITURE_PROMPT_LABELS: Record<FurnitureKind, string> = {
@@ -40,12 +42,13 @@ export const FURNITURE_PROMPT_LABELS: Record<FurnitureKind, string> = {
   table: 'E · Mesa de voz',
   frame: 'E · Ver cuadro',
   cabinet: 'E · Abrir armario',
+  flashcards: 'E · Tarjetas',
 };
 
 export function furnitureRect(item: Furniture): Rect {
   const size: Record<FurnitureKind, [number, number]> = {
     desk: [69, 39], bookshelf: [45, 60], board: [66, 28], plant: [27, 27],
-    table: [58, 42], frame: [34, 22], cabinet: [48, 45],
+    table: [58, 42], frame: [34, 22], cabinet: [48, 45], flashcards: [52, 36],
   };
   const rotated = item.rotation === 90 || item.rotation === 270;
   const [w, h] = rotated ? [...size[item.kind]].reverse() : size[item.kind];
@@ -117,7 +120,7 @@ export function hitFurniture(house: PublicHouse, x: number, y: number): Furnitur
  * Finds the nearest furniture item within reach of the character (`maxDistance`
  * from the furniture's bounding rectangle) so pressing E interacts with it.
  */
-export function closestFurniture(position: Position, house: PublicHouse, maxDistance = 42): Furniture | null {
+export function closestFurniture(position: Position, house: PublicHouse, maxDistance = INTERACTION_REACH): Furniture | null {
   let closest: Furniture | null = null;
   let best = maxDistance;
   for (const item of house.furniture) {

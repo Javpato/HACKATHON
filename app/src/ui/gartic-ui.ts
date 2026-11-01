@@ -1,16 +1,17 @@
+import { msg, t, defaultText, setDisplayText, setDisplayAttribute, getLocale, formatDate, type DisplayText } from '../i18n';
 import {
   CANVAS_H, CANVAS_W, MAX_DRAWING_POINTS, MIN_PLAYERS,
   type DrawStroke, type Drawing, type GarticAction, type GarticView,
 } from '../minigames/gartic-phone';
 import { monoIcon } from './pixel-icons';
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text: DisplayText = ''): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text) node.textContent = text;
+  if (text) setDisplayText(node, text);
   return node;
 }
-function btn(label: string, className = 'gp-btn'): HTMLButtonElement {
+function btn(label: DisplayText, className = 'gp-btn'): HTMLButtonElement {
   const b = el('button', className, label);
   b.type = 'button';
   return b;
@@ -63,6 +64,7 @@ export interface GarticPanelContext {
   send(action: GarticAction): void;
   close(): void;
   me(): { name: string; color: string };
+  aiReady?(): boolean;
   advanced?(container: HTMLElement): void;
 }
 
@@ -93,7 +95,7 @@ export class GarticPanel {
   private activePointer: number | null = null;
 
   constructor(private readonly ctx: GarticPanelContext) {
-    this.root.setAttribute('aria-label', 'Gartic Phone');
+    setDisplayAttribute(this.root, 'aria-label', msg('Gartic Phone'));
   }
 
   mount(container: HTMLElement): void {
@@ -109,6 +111,7 @@ export class GarticPanel {
   }
 
   update(view: GarticView | null, error: string | null): void {
+    if (view) view = { ...view, players: view.players.map(p => ({ ...p, name: defaultText(p.name) })) };
     if (view) {
       this.view = view;
       this.receivedAt = Date.now();
@@ -145,13 +148,13 @@ export class GarticPanel {
     const text = el('input', 'gp-input');
     text.maxLength = 120;
     text.autocomplete = 'off';
-    text.placeholder = v.task?.kind === 'write' ? 'Escribe tu frase' : 'Describe el dibujo';
+    setDisplayAttribute(text, "placeholder", v.task?.kind === 'write' ? msg('Escribe tu frase') : msg('Describe el dibujo'));
     text.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.submit(false); } });
     if (v.mine?.text) text.value = v.mine.text;
     const canvas = el('canvas', 'gp-paper gp-paper-live');
     canvas.width = CANVAS_W * 2;
     canvas.height = CANVAS_H * 2;
-    canvas.setAttribute('aria-label', 'Hoja de dibujo');
+    setDisplayAttribute(canvas, 'aria-label', msg('Hoja de dibujo'));
     this.draft = { key, text, canvas, strokes: v.mine?.drawing?.strokes.map((s) => ({ ...s, p: [...s.p] })) ?? [], undone: [], color: '#000000', size: 7, autoSent: false };
     this.bindCanvas(this.draft);
     this.repaint();
@@ -168,7 +171,7 @@ export class GarticPanel {
     };
     canvas.addEventListener('pointerdown', (e) => {
       if (this.view?.me.done && !this.editing) return;
-      if (this.points() >= MAX_DRAWING_POINTS) { this.errorText = 'La hoja está llena: deshaz algún trazo.'; this.render(); return; }
+      if (this.points() >= MAX_DRAWING_POINTS) { this.errorText = t('La hoja está llena: deshaz algún trazo.'); this.render(); return; }
       this.activePointer = e.pointerId;
       canvas.setPointerCapture(e.pointerId);
       const [x, y] = at(e);
@@ -217,7 +220,7 @@ export class GarticPanel {
     else {
       const text = d.text.value.trim();
       if (auto && !text) return;
-      if (!text) { this.errorText = 'Escribe algo antes de pulsar ¡Listo!'; this.render(); return; }
+      if (!text) { this.errorText = t('Escribe algo antes de pulsar ¡Listo!'); this.render(); return; }
       d.text.value = text;
       this.ctx.send({ kind: 'submit', text });
     }
@@ -229,10 +232,10 @@ export class GarticPanel {
     this.root.dataset.phase = v?.phase ?? 'lobby';
     this.root.append(this.header(v));
     const stage = el('div', 'gp-stage');
-    if (!v) stage.append(this.card('Conectando…', el('p', 'gp-muted', 'Buscando la sala de dibujo de la aldea.')));
+    if (!v) stage.append(this.card(msg('Conectando…'), el('p', 'gp-muted', msg('Buscando la sala de dibujo de la aldea.'))));
     else if (v.phase === 'lobby') stage.append(this.lobby(v));
     else if (v.phase === 'album' || v.phase === 'end') stage.append(this.album(v));
-    else if (!v.task) stage.append(this.card('Partida en curso', el('p', 'gp-muted', 'Podrás unirte a la siguiente. Mientras, mira cómo dibujan los demás.')), this.roster(v));
+    else if (!v.task) stage.append(this.card(msg('Partida en curso'), el('p', 'gp-muted', msg('Podrás unirte a la siguiente. Mientras, mira cómo dibujan los demás.'))), this.roster(v));
     else stage.append(this.task(v));
     if (this.errorText) stage.append(el('p', 'gp-error', this.errorText));
     this.root.append(stage);
@@ -242,7 +245,7 @@ export class GarticPanel {
   private header(v: GarticView | null): HTMLElement {
     const head = el('header', 'gp-head');
     const logo = el('div', 'gp-logo');
-    logo.append(el('span', 'gp-logo-top', 'GARTIC'), el('span', 'gp-logo-bottom', 'PHONE'));
+    logo.append(el('span', 'gp-logo-top', msg('GARTIC')), el('span', 'gp-logo-bottom', msg('PHONE')));
     head.append(logo);
     if (v && v.task && v.phase !== 'lobby') {
       head.append(el('span', 'gp-step', `${v.round + 1}/${v.totalRounds}`));
@@ -253,14 +256,14 @@ export class GarticPanel {
     } else this.timerEl = null;
     const close = btn('', 'gp-close');
     close.append(monoIcon('close', 14));
-    close.setAttribute('aria-label', 'Cerrar');
+    setDisplayAttribute(close, 'aria-label', msg('Cerrar'));
     close.dataset.testid = 'expansion-modal-close';
     close.addEventListener('click', () => this.ctx.close());
     head.append(close);
     return head;
   }
 
-  private card(title: string, ...children: HTMLElement[]): HTMLElement {
+  private card(title: DisplayText, ...children: HTMLElement[]): HTMLElement {
     const card = el('div', 'gp-card');
     card.append(el('h2', 'gp-title', title), ...children);
     return card;
@@ -286,15 +289,15 @@ export class GarticPanel {
   private lobby(v: GarticView): HTMLElement {
     const wrap = el('div', 'gp-lobby');
     const left = el('div', 'gp-card gp-players');
-    left.append(el('h2', 'gp-title', `Jugadores ${v.players.length}/8`));
+    left.append(el('h2', 'gp-title', msg("Jugadores {p0}/8", { p0: v.players.length })));
     const list = el('ul', 'gp-player-list');
     for (const p of v.players) {
       const li = el('li');
-      li.append(this.avatar(p), el('strong', '', p.name), el('span', 'gp-muted', p.id === v.leaderId ? 'anfitrión' : p.bot ? 'bot' : ''));
+      li.append(this.avatar(p), el('strong', '', p.name), el('span', 'gp-muted', p.id === v.leaderId ? msg('anfitrión') : p.bot ? msg('bot') : ''));
       if (p.bot && v.me.isLeader) {
         const x = btn('', 'gp-mini');
         x.append(monoIcon('close', 10));
-        x.setAttribute('aria-label', `Quitar a ${p.name}`);
+        setDisplayAttribute(x, 'aria-label', msg("Quitar a {p0}", { p0: p.name }));
         x.addEventListener('click', () => this.ctx.send({ kind: 'remove_bot', id: p.id }));
         li.append(x);
       }
@@ -302,18 +305,18 @@ export class GarticPanel {
     }
     for (let i = v.players.length; i < Math.max(MIN_PLAYERS, v.players.length + 1) && i < 8; i++) {
       const li = el('li', 'is-empty');
-      li.append(el('span', 'gp-avatar is-md is-empty'), el('span', 'gp-muted', 'Vacío'));
+      li.append(el('span', 'gp-avatar is-md is-empty'), el('span', 'gp-muted', msg('Vacío')));
       list.append(li);
     }
     left.append(list);
 
     const right = el('div', 'gp-card gp-howto');
-    right.append(el('h2', 'gp-title', 'Cómo se juega'));
+    right.append(el('h2', 'gp-title', msg('Cómo se juega')));
     const steps = el('ol', 'gp-steps');
     for (const [icon, title, text] of [
-      ['notes', 'Escribe', 'Una frase absurda para que alguien la dibuje.'],
-      ['brush', 'Dibuja', 'Recibes la frase de otra persona y la dibujas.'],
-      ['chat', 'Adivina', 'Describes el dibujo que te llega… sin ver la frase.'],
+      ['notes', msg('Escribe'), msg('Una frase absurda para que alguien la dibuje.')],
+      ['brush', msg('Dibuja'), msg('Recibes la frase de otra persona y la dibujas.')],
+      ['chat', msg('Adivina'), msg('Describes el dibujo que te llega… sin ver la frase.')],
     ] as const) {
       const li = el('li');
       const badge = el('span', 'gp-step-icon');
@@ -321,27 +324,27 @@ export class GarticPanel {
       li.append(badge, el('strong', '', title), el('span', '', text));
       steps.append(li);
     }
-    right.append(steps, el('p', 'gp-muted', 'Al final se abren los álbumes y se ve cómo cambió cada frase.'));
+    right.append(steps, el('p', 'gp-muted', msg('Al final se abren los álbumes y se ve cómo cambió cada frase.')));
     const actions = el('div', 'gp-actions');
     if (!v.me.seated) {
-      const join = btn('Entrar', 'gp-btn gp-btn-go');
+      const join = btn(msg('Entrar'), 'gp-btn gp-btn-go');
       join.addEventListener('click', () => this.ctx.send({ kind: 'join', ...this.ctx.me() }));
       actions.append(join);
     } else {
-      const leave = btn('Salir', 'gp-btn');
+      const leave = btn(msg('Salir'), 'gp-btn');
       leave.addEventListener('click', () => this.ctx.send({ kind: 'leave' }));
       actions.append(leave);
       if (v.me.isLeader) {
-        const bot = btn('Añadir bot Ollama', 'gp-btn');
+        const bot = btn(msg('Añadir bot Ollama'), 'gp-btn');
         bot.disabled = v.players.length >= 8 || !v.aiBotsReady;
         bot.addEventListener('click', () => this.ctx.send({ kind: 'add_bot' }));
-        const start = btn('Empezar', 'gp-btn gp-btn-go');
+        const start = btn(msg('Empezar'), 'gp-btn gp-btn-go');
         start.disabled = v.players.length < MIN_PLAYERS;
-        start.title = v.players.length < MIN_PLAYERS ? `Mínimo ${MIN_PLAYERS} jugadores` : '';
+        setDisplayAttribute(start, "title", v.players.length < MIN_PLAYERS ? msg("Mínimo {p0} jugadores", { p0: MIN_PLAYERS }) : '');
         start.addEventListener('click', () => this.ctx.send({ kind: 'start' }));
-        const advanced = el('details'); advanced.open = this.advancedOpen; advanced.addEventListener('toggle', () => { if (advanced.isConnected) this.advancedOpen = advanced.open; }); advanced.append(el('summary', '', 'Opciones avanzadas · bots con Ollama'));
-        this.ctx.advanced?.(advanced); advanced.append(bot); actions.append(start, advanced);
-      } else actions.append(el('p', 'gp-muted', 'Esperando a que el anfitrión empiece…'));
+        const advanced = el('details'); advanced.open = this.advancedOpen; advanced.addEventListener('toggle', () => { if (advanced.isConnected) this.advancedOpen = advanced.open; }); advanced.append(el('summary', '', msg('Opciones avanzadas · bots con Ollama')));
+        this.ctx.advanced?.(advanced); advanced.append(bot); actions.append(start); if (this.ctx.aiReady?.()) actions.append(advanced);
+      } else actions.append(el('p', 'gp-muted', msg('Esperando a que el anfitrión empiece…')));
     }
     right.append(actions);
     wrap.append(left, right);
@@ -355,41 +358,41 @@ export class GarticPanel {
     const wrap = el('div', 'gp-task');
     const done = () => {
       const row = el('div', 'gp-actions');
-      const b = btn(locked ? 'Editar' : '¡Listo!', locked ? 'gp-btn' : 'gp-btn gp-btn-go');
+      const b = btn(locked ? msg('Editar') : msg('¡Listo!'), locked ? 'gp-btn' : 'gp-btn gp-btn-go');
       if (!locked) b.prepend(monoIcon('check', 14));
       b.addEventListener('click', () => {
         if (locked) { this.editing = true; this.ctx.send({ kind: 'unsubmit' }); this.render(); }
         else this.submit(false);
       });
       row.append(b);
-      if (locked) row.append(el('span', 'gp-muted', `Esperando: ${v.players.filter((p) => !p.done).map((p) => p.name).join(', ') || '…'}`));
+      if (locked) row.append(el('span', 'gp-muted', msg("Esperando: {p0}", { p0: v.players.filter((p) => !p.done).map((p) => p.name).join(', ') || '…' })));
       return row;
     };
 
     if (t.kind === 'write') {
-      const card = this.card('¡Escribe una frase!');
-      card.append(el('p', 'gp-muted', 'Algo raro, divertido o difícil de dibujar.'));
+      const card = this.card(msg('¡Escribe una frase!'));
+      card.append(el('p', 'gp-muted', msg('Algo raro, divertido o difícil de dibujar.')));
       d.text.disabled = locked;
       card.append(d.text, done());
       wrap.append(card);
       queueMicrotask(() => { if (!locked && document.activeElement !== d.text) d.text.focus(); });
     } else if (t.kind === 'guess') {
-      const card = this.card('¿Qué es este dibujo?');
+      const card = this.card(msg('¿Qué es este dibujo?'));
       card.append(drawingCanvas(t.previous?.drawing, 'gp-paper gp-paper-view'));
       d.text.disabled = locked;
       card.append(d.text, done());
       wrap.append(card);
     } else {
       const banner = el('div', 'gp-prompt');
-      banner.append(el('span', 'gp-prompt-label', 'Dibuja:'), el('strong', '', t.previous?.text ?? '¡Lo que quieras!'));
+      banner.append(el('span', 'gp-prompt-label', msg('Dibuja:')), el('strong', '', t.previous?.text ?? msg('¡Lo que quieras!')));
       const board = el('div', 'gp-board');
       board.classList.toggle('is-locked', locked);
       const palette = el('div', 'gp-palette');
-      palette.setAttribute('aria-label', 'Colores');
+      setDisplayAttribute(palette, 'aria-label', msg('Colores'));
       for (const color of PALETTE) {
         const sw = btn('', 'gp-swatch');
         sw.style.backgroundColor = color;
-        sw.setAttribute('aria-label', `Color ${color}`);
+        setDisplayAttribute(sw, 'aria-label', msg("Color {p0}", { p0: color }));
         sw.classList.toggle('is-active', d.color === color);
         sw.addEventListener('click', () => { d.color = color; this.render(); });
         palette.append(sw);
@@ -400,21 +403,21 @@ export class GarticPanel {
         const dot = el('span', 'gp-size-dot');
         dot.style.width = dot.style.height = `${Math.max(4, size * 0.9)}px`;
         b.append(dot);
-        b.setAttribute('aria-label', `Grosor ${size}`);
+        setDisplayAttribute(b, 'aria-label', msg("Grosor {p0}", { p0: size }));
         b.classList.toggle('is-active', d.size === size);
         b.addEventListener('click', () => { d.size = size; this.render(); });
         tools.append(b);
       }
-      const eraser = btn('Goma', 'gp-tool');
+      const eraser = btn(msg('Goma'), 'gp-tool');
       eraser.classList.toggle('is-active', d.color === '#ffffff');
       eraser.addEventListener('click', () => { d.color = '#ffffff'; this.render(); });
-      const undo = btn('Deshacer', 'gp-tool');
+      const undo = btn(msg('Deshacer'), 'gp-tool');
       undo.disabled = !d.strokes.length;
       undo.addEventListener('click', () => { const s = d.strokes.pop(); if (s) d.undone.push(s); this.repaint(); this.render(); });
-      const redo = btn('Rehacer', 'gp-tool');
+      const redo = btn(msg('Rehacer'), 'gp-tool');
       redo.disabled = !d.undone.length;
       redo.addEventListener('click', () => { const s = d.undone.pop(); if (s) d.strokes.push(s); this.repaint(); this.render(); });
-      const clear = btn('Borrar', 'gp-tool');
+      const clear = btn(msg('Borrar'), 'gp-tool');
       clear.addEventListener('click', () => { d.undone = [...d.strokes].reverse(); d.strokes = []; this.repaint(); this.render(); });
       tools.append(eraser, undo, redo, clear);
       const paperWrap = el('div', 'gp-paper-wrap');
@@ -430,7 +433,7 @@ export class GarticPanel {
     const a = v.album!;
     const card = el('div', 'gp-card gp-album');
     const head = el('div', 'gp-album-head');
-    head.append(this.avatar(a.owner), el('h2', 'gp-title', `Álbum de ${a.owner.name}`), el('span', 'gp-step', `${a.book + 1}/${a.books}`));
+    head.append(this.avatar(a.owner), el('h2', 'gp-title', msg("Álbum de {p0}", { p0: a.owner.name })), el('span', 'gp-step', `${a.book + 1}/${a.books}`));
     card.append(head);
     const feed = el('ol', 'gp-feed');
     for (const page of a.pages) {
@@ -448,14 +451,14 @@ export class GarticPanel {
     if (v.me.isLeader) {
       if (v.phase === 'album') {
         const last = a.page + 1 >= v.totalRounds;
-        const next = btn(last ? (a.book + 1 < a.books ? 'Siguiente álbum' : 'Terminar') : 'Siguiente', 'gp-btn gp-btn-go');
+        const next = btn(last ? (a.book + 1 < a.books ? msg('Siguiente álbum') : msg('Terminar')) : msg('Siguiente'), 'gp-btn gp-btn-go');
         next.addEventListener('click', () => this.ctx.send({ kind: 'album_next' }));
         actions.append(next);
       }
-      const again = btn('Volver a la sala', 'gp-btn');
+      const again = btn(msg('Volver a la sala'), 'gp-btn');
       again.addEventListener('click', () => { this.albumCache.clear(); this.ctx.send({ kind: 'play_again' }); });
       actions.append(again);
-    } else actions.append(el('p', 'gp-muted', 'El anfitrión pasa las páginas.'));
+    } else actions.append(el('p', 'gp-muted', msg('El anfitrión pasa las páginas.')));
     card.append(actions);
     queueMicrotask(() => { feed.lastElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
     return card;

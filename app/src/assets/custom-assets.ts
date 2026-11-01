@@ -177,7 +177,7 @@ export function validateAssetPack(raw: unknown): AssetPackManifest {
 
   const avatar = normalizeAppearance(obj.avatar);
 
-  const validKinds: FurnitureKind[] = ['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet'];
+  const validKinds: FurnitureKind[] = ['desk', 'bookshelf', 'board', 'plant', 'table', 'frame', 'cabinet', 'flashcards'];
   const furnitureColors: Partial<Record<FurnitureKind, string>> = {};
   if (obj.furnitureColors && typeof obj.furnitureColors === 'object') {
     for (const kind of validKinds) {

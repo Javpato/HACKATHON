@@ -1,3 +1,4 @@
+import { INTERACTION_REACH } from './interactions';
 import { z } from 'zod';
 import type { Rect } from './model';
 
@@ -348,7 +349,7 @@ export class InteractiveObjectRegistry {
       const nx = Math.max(obj.x, Math.min(x, obj.x + obj.w));
       const ny = Math.max(obj.y, Math.min(y, obj.y + obj.h));
       const dist = Math.hypot(x - nx, y - ny);
-      if (dist <= obj.interactionRadius && dist < bestDist) {
+      if (dist <= Math.min(INTERACTION_REACH,obj.interactionRadius) && dist < bestDist) {
         bestDist = dist;
         best = obj;
       }

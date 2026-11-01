@@ -100,13 +100,13 @@ test('portal travel separates avatars and public media across areas, including s
       finally { await page.keyboard.up(key); }
       await page.keyboard.press('e');
     };
-    await walkTo(guest, 'd', 'Ir a Plaza Comunitaria');
+    await walkTo(guest, 'w', 'Ir a Plaza Comunitaria');
     await expect(guestCanvas).toHaveAttribute('aria-label', /^Plaza Comunitaria · Personas aquí: PortalGuest$/);
     await expect(hostCanvas).toHaveAttribute('aria-label', /^La aldea · Personas aquí: PortalHost$/);
     await expect(audience(host)).toHaveText(/^La aldea · 0/);
     await expect(audience(guest)).toHaveText(/^Plaza Comunitaria · 0/);
 
-    await walkTo(host, 'd', 'Ir a Plaza Comunitaria');
+    await walkTo(host, 'w', 'Ir a Plaza Comunitaria');
     await expect(hostCanvas).toHaveAttribute('aria-label', /PortalGuest/);
     await expect(guestCanvas).toHaveAttribute('aria-label', /PortalHost/);
     await expect(audience(host)).toHaveText(/^Plaza Comunitaria · 1/);
@@ -114,7 +114,7 @@ test('portal travel separates avatars and public media across areas, including s
     // The guest is still standing at the arrival: E goes back through the west portal.
     await guest.keyboard.press('e');
     await expect(guestCanvas).toHaveAttribute('aria-label', /^La aldea · Personas aquí: PortalGuest$/);
-    await walkTo(guest, 'a', 'Ir a Biblioteca de Estudio');
+    await walkTo(guest, 's', 'Ir a Biblioteca de Estudio');
     await expect(guestCanvas).toHaveAttribute('aria-label', /^Biblioteca y Taller de Estudio · Personas aquí: PortalGuest$/);
     await expect(hostCanvas).toHaveAttribute('aria-label', /^Plaza Comunitaria · Personas aquí: PortalHost$/);
     await expect(audience(guest)).toHaveText(/^Biblioteca y Estudio · 0/);
@@ -145,9 +145,9 @@ test('the group shares projects and plays one werewolves table, each seeing only
     for (const page of [ana, beto]) {
       const canvas = page.locator('.sv-stage-pane canvas');
       const box = (await canvas.boundingBox())!;
-      await canvas.click({ position: { x: box.width - 15, y: box.height / 2 } });
+      await canvas.dblclick({ position: { x: box.width * 240 / 768, y: box.height * 50 / 432 } });
       await expect(page.getByRole('heading', { name: 'Plaza Comunitaria', exact: true })).toBeVisible({ timeout: 10_000 });
-      await canvas.click({ position: { x: box.width * 384 / 768, y: box.height * 205 / 432 } });
+      await canvas.dblclick({ position: { x: box.width * 384 / 768, y: box.height * 205 / 432 } });
       await expect(page.getByRole('heading', { name: 'La mesa de la hoguera' })).toBeVisible({ timeout: 10_000 });
     }
     await ana.getByRole('button', { name: 'Sentarme a la mesa' }).click();
@@ -171,19 +171,20 @@ test('the group shares projects and plays one werewolves table, each seeing only
   } finally { await Promise.all(contexts.map(context => context.close())); }
 });
 
-test('the host presents a user-created quiz, scores a guest answer and stops it for everyone', async ({ browser }) => {
+test('host and guest answer the same quiz with hidden solutions and can stop it for everyone', async ({ browser }) => {
   test.setTimeout(120000);const contexts:BrowserContext[]=[];
   try {
     const [host,guest]=await village(browser,['QuizHost','QuizGuest'],contexts);
-    await phoneApp(host,'cards');const study=host.getByRole('region',{name:'Tarjetas de estudio'});
-    await study.getByRole('button',{name:'Crear mazo',exact:true}).click();await study.getByLabel('Nombre del mazo').fill('Concurso');await study.getByRole('button',{name:'Crear',exact:true}).click();
-    await study.getByLabel('Pregunta',{exact:true}).fill('Pregunta de concurso');await study.getByLabel('Respuesta',{exact:true}).fill('Correcta');await study.locator('summary',{hasText:'Opciones de concurso'}).click();await study.getByLabel('Usar en concursos').check();await study.getByLabel('Opción 1',{exact:true}).fill('Correcta');await study.getByLabel('Opción 2',{exact:true}).fill('Incorrecta');await study.getByRole('button',{name:'Añadir tarjeta',exact:true}).click();
-    await study.getByRole('button',{name:'Biblioteca',exact:true}).click();await study.getByRole('button',{name:'Jugar en grupo'}).click();
-    await phoneApp(guest,'cards');const guestStudy=guest.getByRole('region',{name:'Tarjetas de estudio'});await guestStudy.getByRole('button',{name:'Jugar en grupo'}).click();await guestStudy.getByRole('button',{name:'Entrar en la partida'}).click();
-    await expect(study.getByText('1 participantes')).toBeVisible({timeout:15000});await study.getByRole('button',{name:'Comenzar partida'}).click();
-    await expect(guestStudy.getByRole('heading',{name:'Pregunta de concurso'})).toBeVisible({timeout:15000});await expect(guestStudy.getByText('Respuesta: Correcta')).toHaveCount(0);
-    await guestStudy.getByRole('button',{name:'Correcta',exact:true}).click();await expect(study.getByText('Respuesta: Correcta')).toBeVisible({timeout:15000});await expect(guestStudy.locator('li')).toHaveText(/QuizGuest · (?:[5-9]\d\d|1000) puntos/);
-    await study.getByRole('button',{name:'Terminar partida',exact:true}).click();await study.getByRole('button',{name:'¿Terminar para todos?',exact:true}).click();await expect(guestStudy.getByText('El anfitrión terminó la partida.')).toBeVisible({timeout:15000});
+    await phoneApp(host,'study');const study=host.getByRole('region',{name:'Estudio',exact:true});
+    await study.getByRole('button',{name:/^Quiz/}).click();await study.getByRole('button',{name:/Crear un quiz/}).click();await study.getByLabel('Nombre del quiz').fill('Concurso');await study.getByRole('button',{name:'Crear',exact:true}).click();
+    await study.getByLabel('Pregunta',{exact:true}).fill('Pregunta de concurso');await study.getByLabel('Respuesta 1',{exact:true}).fill('Correcta');await study.getByLabel('Respuesta 2',{exact:true}).fill('Incorrecta');await study.getByRole('button',{name:'Añadir pregunta',exact:true}).click();
+    await study.getByRole('button',{name:'← Volver',exact:true}).click();await study.getByRole('button',{name:'Jugar',exact:true}).click();await study.getByRole('button',{name:'Crear concurso en la aldea'}).click();
+    await phoneApp(guest,'study');const guestStudy=guest.getByRole('region',{name:'Estudio',exact:true});await guestStudy.getByRole('button',{name:/^Quiz/}).click();await guestStudy.getByRole('button',{name:/Jugar un quiz/}).click();await guestStudy.getByRole('button',{name:'Unirme al concurso de la aldea'}).click();
+    await expect(study.getByText('2 participantes')).toBeVisible({timeout:15000});await study.getByRole('button',{name:'Comenzar concurso'}).click();
+    await expect(guestStudy.getByRole('heading',{name:'Pregunta de concurso'})).toBeVisible({timeout:15000});await expect(guestStudy.getByText('Respuesta correcta: Correcta')).toHaveCount(0);
+    await guestStudy.getByRole('button',{name:'Correcta',exact:true}).click();await expect(guestStudy.getByText('Respuesta enviada. Esperando al resto…')).toBeVisible();await expect(guestStudy.getByText('Respuesta correcta: Correcta')).toHaveCount(0);
+    await study.getByRole('button',{name:'Correcta',exact:true}).click();await expect(study.getByText('Respuesta correcta: Correcta')).toBeVisible({timeout:15000});await expect(guestStudy.getByText(/QuizGuest · (?:[5-9]\d\d|1000) puntos/)).toBeVisible();
+    await study.locator('summary',{hasText:'Opciones del concurso'}).click();await study.getByRole('button',{name:'Terminar concurso',exact:true}).click();await study.getByRole('button',{name:'Confirmar fin para todos',exact:true}).click();await expect(guestStudy.getByText('El concurso ha terminado. Puedes empezar otro cuando quieras.')).toBeVisible({timeout:15000});
   } finally {await Promise.all(contexts.map(c=>c.close()));}
 });
 
@@ -191,7 +192,7 @@ test('the village host can stop Werewolves without taking a seat', async ({ brow
   test.setTimeout(120000);const contexts:BrowserContext[]=[];
   try {
     const [host,guest]=await village(browser,['ObserverHost','Organizer'],contexts);
-    const reach=async(page:Page)=>{const canvas=page.locator('.sv-stage-pane canvas');let box=(await canvas.boundingBox())!;await canvas.click({position:{x:box.width-15,y:box.height/2}});await expect(page.locator('.sv-hud-place h1')).toHaveText('Plaza Comunitaria',{timeout:15000});box=(await canvas.boundingBox())!;await canvas.click({position:{x:box.width*384/768,y:box.height*210/432}});await expect(page.getByRole('region',{name:'Hombres lobo'})).toBeVisible({timeout:15000});};
+    const reach=async(page:Page)=>{const canvas=page.locator('.sv-stage-pane canvas');let box=(await canvas.boundingBox())!;await canvas.dblclick({position:{x:box.width*240/768,y:box.height*50/432}});await expect(page.locator('.sv-hud-place h1')).toHaveText('Plaza Comunitaria',{timeout:15000});box=(await canvas.boundingBox())!;await canvas.dblclick({position:{x:box.width*384/768,y:box.height*210/432}});await expect(page.getByRole('region',{name:'Hombres lobo'})).toBeVisible({timeout:15000});};
     await reach(guest);await guest.getByRole('button',{name:'Sentarme a la mesa'}).click();for(let i=0;i<3;i++)await guest.getByRole('button',{name:'Añadir bot',exact:true}).click();await guest.getByRole('button',{name:'Repartir cartas'}).click();
     await reach(host);await expect(host.getByRole('region',{name:'Hombres lobo'})).toBeVisible();await expect(host.locator('.ww-seat.is-me')).toHaveCount(0);
     await host.getByRole('button',{name:'Terminar partida',exact:true}).click();await host.getByRole('button',{name:'¿Terminar para todos?',exact:true}).click();await expect(guest.getByRole('heading',{name:'La mesa de la hoguera'})).toBeVisible({timeout:15000});
@@ -205,15 +206,15 @@ test('game cameras share video only inside the same open game and stop when it c
     const [host,guest]=await village(browser,['Cámara anfitrión','Cámara invitado'],contexts);
     const reach=async(page:Page,game:'werewolves'|'gartic')=>{
       const canvas=page.locator('.sv-stage-pane canvas');let box=(await canvas.boundingBox())!;
-      await canvas.click({position:{x:box.width-15,y:box.height/2}});await expect(page.locator('.sv-hud-place h1')).toHaveText('Plaza Comunitaria',{timeout:15000});
-      box=(await canvas.boundingBox())!;await canvas.click({position:{x:box.width*(game==='werewolves'?384:169)/768,y:box.height*(game==='werewolves'?210:110)/432}});
+      await canvas.dblclick({position:{x:box.width*240/768,y:box.height*50/432}});await expect(page.locator('.sv-hud-place h1')).toHaveText('Plaza Comunitaria',{timeout:15000});
+      box=(await canvas.boundingBox())!;await canvas.dblclick({position:{x:box.width*(game==='werewolves'?384:169)/768,y:box.height*(game==='werewolves'?210:110)/432}});
       await expect(page.locator(game==='werewolves'?'.ww':'.gp')).toBeVisible({timeout:15000});
     };
     await reach(host,'werewolves');await reach(guest,'gartic');
     await host.getByRole('button',{name:'Activar cámara',exact:true}).click();await guest.getByRole('button',{name:'Activar cámara',exact:true}).click();
     await expect(host.locator('.sv-game-camera-tile')).toHaveCount(1);await expect(guest.locator('.sv-game-camera-tile')).toHaveCount(1);
     await guest.getByTestId('expansion-modal-close').click();
-    const canvas=guest.locator('.sv-stage-pane canvas');const box=(await canvas.boundingBox())!;await canvas.click({position:{x:box.width*384/768,y:box.height*210/432}});
+    const canvas=guest.locator('.sv-stage-pane canvas');const box=(await canvas.boundingBox())!;await canvas.dblclick({position:{x:box.width*384/768,y:box.height*210/432}});
     await expect(guest.locator('.ww')).toBeVisible({timeout:15000});
     await expect(guest.getByLabel('Cámara de Cámara anfitrión',{exact:true})).toBeVisible({timeout:25000});
     await expect.poll(()=>guest.getByLabel('Cámara de Cámara anfitrión',{exact:true}).evaluate(v=>(v as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
